@@ -160,20 +160,24 @@ docs/               setup guides
   run against a real release. Open:
   - An opt-in `mode = "auto"` that installs when every job is idle and then
     restarts the daemon (the supervisors need a restart-on-exit policy first).
-  - Show "update available" / "restarting to update" in the tray and widget.
+  - "Update available" shows in the tray (done); "restarting to update" and the
+    widget are open.
   - A `foxcloud update --rollback` that restores the `*.old` files.
   - Where a package manager is used (winget, Homebrew, an AUR package), let it
     update and skip the built-in updater.
 
-- **Daemon-not-running state in the clients.** The amber `offline` icon exists
-  in both palettes (`assets/status/*/offline.svg`). The state is client-side:
-  the daemon cannot report that it is gone. A client learns it from the event
-  stream closing (see `daemon.Watch`, which returns `ErrNotRunning`), so no
-  polling is needed to notice. Still to do, with the tray and widget: show the
-  icon plus a "service not running" line, disable the actions, and reconnect
-  without polling by watching the socket's directory for the socket file to
-  reappear (needs a file-watch dependency such as fsnotify; the daemon's own
-  `watch` trigger will need the same).
+- **Tray (built, untested on a real desktop).** `foxcloud-tray` (Windows and
+  Linux; macOS needs cgo and is deferred) shows one summary icon (failed >
+  paused > activity > waiting/idle > synced), a line per job (click to sync
+  now), the "service not running" state with the amber icon, and the update
+  notice the daemon publishes. It reconnects without polling by watching the
+  socket's directory (`daemon.Follow`). Icons are generated from the SVGs by
+  `tools/genicons` (its own module) into `internal/tray/icons`. Theme is read
+  once at start on Windows and assumed dark on Linux (`-theme` overrides).
+  Autostart: a Run-key entry on Windows, an XDG autostart file on Linux. Open:
+  live theme changes, a "restarting to update" state, tray in the release
+  archives' updater (`foxcloud update` still swaps only `foxcloud` and
+  `foxcloudd`), and the Plasma widget.
 
 - **Daemon as a service.** Linux is done: `packaging/linux/` has a systemd user
   unit (waits for boot via `systemctl is-system-running --wait`, logs to the
@@ -181,5 +185,4 @@ docs/               setup guides
   service (`packaging/windows/install.ps1`): the crypt key sits in the user's
   credential store, which a service account cannot read. The daemon takes
   `-logfile` (rotated at 5 MiB). Neither wrapper has been run for real yet.
-  Still to do: the Plasma widget and optional tray from milestone 4, and a
-  Windows tray.
+  Still to do: the Plasma widget from milestone 4.

@@ -30,6 +30,8 @@ if ($Uninstall) {
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
     }
+    Get-Process foxcloud-tray -ErrorAction SilentlyContinue | Stop-Process -Force
+    Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'FoxCloud tray' -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
     Write-Host 'Removed. State, config and the log were left in place.'
     return
@@ -45,6 +47,7 @@ if (-not ((Test-Path (Join-Path $BinDir 'foxcloud.exe')) -and (Test-Path (Join-P
         go build -o (Join-Path $BinDir 'foxcloud.exe') ./cmd/foxcloud
         # No console window for the background daemon; it logs to a file.
         go build -ldflags '-H=windowsgui' -o (Join-Path $BinDir 'foxcloudd.exe') ./cmd/foxcloudd
+        go build -ldflags '-H=windowsgui' -o (Join-Path $BinDir 'foxcloud-tray.exe') ./cmd/foxcloud-tray
     } finally { Pop-Location }
 }
 
@@ -54,6 +57,8 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
 }
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
 Copy-Item (Join-Path $BinDir 'foxcloud.exe'), (Join-Path $BinDir 'foxcloudd.exe') $InstallDir -Force
+$trayExe = Join-Path $BinDir 'foxcloud-tray.exe'
+if (Test-Path $trayExe) { Copy-Item $trayExe $InstallDir -Force }
 
 $exe = Join-Path $InstallDir 'foxcloudd.exe'
 $action = New-ScheduledTaskAction -Execute $exe -Argument "-logfile `"$logFile`""
@@ -66,6 +71,13 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
     -Settings $settings -Principal $principal -Force | Out-Null
+
+# The tray starts with the user's session through the Run key (no admin needed).
+$installedTray = Join-Path $InstallDir 'foxcloud-tray.exe'
+if (Test-Path $installedTray) {
+    Get-Process foxcloud-tray -ErrorAction SilentlyContinue | Stop-Process -Force
+    Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'FoxCloud tray' -Value "`"$installedTray`""
+}
 
 Write-Host "installed to $InstallDir"
 Write-Host 'Start now:  Start-ScheduledTask -TaskName "FoxCloud daemon"'

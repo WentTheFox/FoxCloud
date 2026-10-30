@@ -52,11 +52,15 @@ jobs:
             $daemonFlags = if ($t.os -eq 'windows') { "$ldflags -H=windowsgui" } else { $ldflags }
             go build -trimpath -ldflags $ldflags -o "$out/foxcloud$ext" ./cmd/foxcloud
             go build -trimpath -ldflags $daemonFlags -o "$out/foxcloudd$ext" ./cmd/foxcloudd
-            Copy-Item README.md, config.example.toml $out
+            if ($t.os -ne 'darwin') {   # the tray has no macOS build yet
+              $trayFlags = if ($t.os -eq 'windows') { "$ldflags -H=windowsgui" } else { $ldflags }
+              go build -trimpath -ldflags $trayFlags -o "$out/foxcloud-tray$ext" ./cmd/foxcloud-tray
+            }
+            Copy-Item README.md, LICENSE, config.example.toml $out
             if ($t.os -eq 'windows') {
               Copy-Item packaging/windows/install.ps1, packaging/windows/foxcloud-codesign.cer $out
             } elseif ($t.os -eq 'linux') {
-              Copy-Item packaging/linux/foxcloudd.service, packaging/linux/install.sh $out
+              Copy-Item packaging/linux/foxcloudd.service, packaging/linux/foxcloud-tray.desktop, packaging/linux/install.sh $out
             }
           }
 

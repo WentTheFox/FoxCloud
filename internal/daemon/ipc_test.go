@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -149,4 +150,48 @@ func TestNothingListeningIsNotRunning(t *testing.T) {
 	if err != ErrNotRunning {
 		t.Errorf("err = %v, want ErrNotRunning", err)
 	}
+}
+
+func TestFollowReconnectsWhenDaemonAppears(t *testing.T) {
+	path := sockPath(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var mu sync.Mutex
+	var log []string
+	note := func(s string) { mu.Lock(); log = append(log, s); mu.Unlock() }
+	done := make(chan struct{})
+	go func() {
+		Follow(ctx, path, func(ev Event) { note("event:" + string(ev.State)) }, func() { note("gone") })
+		close(done)
+	}()
+
+	waitFor := func(want string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			for _, l := range log {
+				if l == want {
+					mu.Unlock()
+					return
+				}
+			}
+			mu.Unlock()
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("never saw %q; log = %v", want, log)
+	}
+
+	waitFor("gone") // nothing is listening yet
+
+	d := New(job(config.RolePush, ""), ok, time.Hour)
+	srvCtx, stopSrv := context.WithCancel(context.Background())
+	go d.Run(srvCtx)
+	go Serve(srvCtx, d, path)
+	waitFor("event:waiting") // connected on its own once the socket appeared
+
+	stopSrv()
+	cancel()
+	<-done
 }

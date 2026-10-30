@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=FoxCloud tray
+Comment=Sync status icon for FoxCloud
+Exec=foxcloud-tray
+Icon=folder-cloud
+Terminal=false
+X-GNOME-Autostart-enabled=true

@@ -38,12 +38,17 @@ func Output(ctx context.Context, bin string, args, env []string) ([]byte, error)
 }
 
 // Run executes rclone, streaming its output to out while keeping the tail of
-// it for classification. env is appended to the process environment.
-func Run(ctx context.Context, bin string, args, env []string, out io.Writer) (output string, err error) {
+// it for classification. env is appended to the process environment. If onMsg
+// is set, rclone must have been given --use-json-log: its lines are rendered
+// as plain text and each message is passed to onMsg.
+func Run(ctx context.Context, bin string, args, env []string, out io.Writer, onMsg func(string)) (output string, err error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append(os.Environ(), env...)
 	var tail tailBuffer
-	w := io.MultiWriter(out, &tail)
+	w := io.Writer(io.MultiWriter(out, &tail))
+	if onMsg != nil {
+		w = &jsonLog{out: w, onMsg: onMsg}
+	}
 	cmd.Stdout, cmd.Stderr = w, w
 	err = cmd.Run()
 	return string(tail.b), err

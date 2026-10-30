@@ -114,8 +114,9 @@ docs/               setup guides
   disk activity (indexing, updates, other services starting) competes with an
   immediate sync, and a sync that starts at once on a drive that is still
   spinning up or being scanned makes both slower. Needed:
-  - A startup hold before the first run, with a minimum delay and a "system
-    still settling" condition.
+  - A startup hold before the first run, with a minimum delay (done:
+    `[daemon] startup_delay`, shown as the `waiting` state) and a "system still
+    settling" condition (the unit and service wrappers below).
   - A visible state for it. The tray and widget should show that FoxCloud is
     waiting on purpose, not stuck. For now it reuses the idle icon, with the
     tooltip and `foxcloud status` saying "waiting for the system to settle"
@@ -183,12 +184,6 @@ docs/               setup guides
   that error but does not yet recover from it. A `bisync` job needs either an
   explicit "filters changed, resync needed" pause or a guarded automatic
   resync. `push` jobs are not affected.
-
-- **Real transfer direction.** The daemon currently derives the uploading,
-  downloading or syncing state from the job's role. For `bisync` it should
-  follow what rclone is actually transferring, read from its JSON log stream
-  (`--use-json-log`), so the icon moves between up, down and both as a pass
-  changes direction. That keeps it event-driven, with no polling of rclone.
 
 - **Daemon as a service.** The daemon runs in the foreground and logs to
   stderr. Wrapping it (Windows service, systemd user unit) and writing its log

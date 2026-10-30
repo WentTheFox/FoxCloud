@@ -38,6 +38,9 @@ type RunOptions struct {
 	// OnResync is called when the pass is a full bisync resync, which has no
 	// meaningful progress estimate.
 	OnResync func()
+	// OnDirection is called as a bisync pass switches between uploading and
+	// downloading, following rclone's own log rather than polling it.
+	OnDirection func(rclone.Direction)
 }
 
 func (e *Engine) now() time.Time {
@@ -85,6 +88,7 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 	}
 	args, err := rclone.Args(job, rclone.Options{
 		DryRun: opts.DryRun, Force: opts.Force, Resync: resync, Now: e.now(),
+		JSONLog: opts.OnDirection != nil && job.Role == config.RoleBisync,
 	})
 	if err != nil {
 		return err
@@ -93,7 +97,15 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 	e.warnLongNames(ctx, job)
 
 	st.LastAttempt = e.now()
-	output, runErr := rclone.Run(ctx, e.Rclone, args, env, e.Out)
+	var onMsg func(string)
+	if opts.OnDirection != nil && job.Role == config.RoleBisync {
+		onMsg = func(msg string) {
+			if d, ok := rclone.BisyncDirection(msg); ok {
+				opts.OnDirection(d)
+			}
+		}
+	}
+	output, runErr := rclone.Run(ctx, e.Rclone, args, env, e.Out, onMsg)
 	if opts.DryRun {
 		return runErr // a dry run must not change the recorded state
 	}

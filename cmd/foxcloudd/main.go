@@ -13,6 +13,7 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/app"
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
+	"github.com/WentTheFox/FoxCloud/internal/rclone"
 )
 
 func main() {
@@ -40,8 +41,8 @@ func run() error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	d := daemon.New(cfg.Jobs, func(ctx context.Context, job string, onResync func()) error {
-		return e.Run(ctx, job, engine.RunOptions{OnResync: onResync})
+	d := daemon.New(cfg.Jobs, func(ctx context.Context, job string, onResync func(), onDirection func(rclone.Direction)) error {
+		return e.Run(ctx, job, engine.RunOptions{OnResync: onResync, OnDirection: onDirection})
 	}, cfg.Daemon.StartupDelayDuration())
 
 	// If the socket cannot be served (another daemon owns it, say), stop

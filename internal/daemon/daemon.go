@@ -10,11 +10,13 @@ import (
 
 	"github.com/WentTheFox/FoxCloud/internal/config"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
+	"github.com/WentTheFox/FoxCloud/internal/rclone"
 )
 
 // Runner performs one sync pass of a job. onResync is called if the pass turns
-// out to be a full resync.
-type Runner func(ctx context.Context, job string, onResync func()) error
+// out to be a full resync, and onDirection as a bisync pass switches between
+// uploading and downloading.
+type Runner func(ctx context.Context, job string, onResync func(), onDirection func(rclone.Direction)) error
 
 // Daemon schedules the jobs and publishes their state.
 type Daemon struct {
@@ -133,6 +135,16 @@ func (d *Daemon) pass(parent context.Context, j config.Job) {
 	err := d.run(ctx, j.Name, func() {
 		d.emit(Event{Job: j.Name, State: active, Resync: true,
 			Message: "full resync: there is no progress estimate for this run"})
+	}, func(dir rclone.Direction) {
+		// Only bisync reports a direction; push and pull keep their fixed one.
+		if j.Role != config.RoleBisync {
+			return
+		}
+		next := StateUploading
+		if dir == rclone.Download {
+			next = StateDownloading
+		}
+		d.emit(Event{Job: j.Name, State: next})
 	})
 
 	var se *engine.SyncError

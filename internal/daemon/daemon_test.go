@@ -11,6 +11,7 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/classify"
 	"github.com/WentTheFox/FoxCloud/internal/config"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
+	"github.com/WentTheFox/FoxCloud/internal/rclone"
 )
 
 func job(role, interval string) []config.Job {
@@ -20,13 +21,14 @@ func job(role, interval string) []config.Job {
 // start runs the daemon in the background and returns a way to wait for states.
 func start(t *testing.T, d *Daemon) (await func(State) Event) {
 	t.Helper()
+	// Subscribe first: a job that finishes at once would otherwise be missed.
+	_, events, unsub := d.Subscribe()
+	t.Cleanup(unsub)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { d.Run(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
-
-	_, events, unsub := d.Subscribe()
-	t.Cleanup(unsub)
 	return func(want State) Event {
 		t.Helper()
 		deadline := time.After(3 * time.Second)
@@ -43,12 +45,12 @@ func start(t *testing.T, d *Daemon) (await func(State) Event) {
 	}
 }
 
-func ok(context.Context, string, func()) error { return nil }
+func ok(context.Context, string, func(), func(rclone.Direction)) error { return nil }
 
 func TestHoldsBeforeTheFirstPass(t *testing.T) {
 	var ranAt atomic.Int64
 	began := time.Now()
-	d := New(job(config.RolePush, ""), func(context.Context, string, func()) error {
+	d := New(job(config.RolePush, ""), func(context.Context, string, func(), func(rclone.Direction)) error {
 		ranAt.Store(time.Now().UnixNano())
 		return nil
 	}, 120*time.Millisecond)
@@ -87,7 +89,7 @@ func TestSyncNowSkipsTheHold(t *testing.T) {
 
 func TestIntervalRepeats(t *testing.T) {
 	var n atomic.Int32
-	d := New(job(config.RolePush, "30ms"), func(context.Context, string, func()) error {
+	d := New(job(config.RolePush, "30ms"), func(context.Context, string, func(), func(rclone.Direction)) error {
 		n.Add(1)
 		return nil
 	}, 0)
@@ -106,7 +108,7 @@ func TestActiveStateFollowsTheRole(t *testing.T) {
 		config.RolePush: StateUploading, config.RolePull: StateDownloading, config.RoleBisync: StateSyncing,
 	} {
 		release := make(chan struct{})
-		d := New(job(role, ""), func(ctx context.Context, _ string, _ func()) error {
+		d := New(job(role, ""), func(ctx context.Context, _ string, _ func(), _ func(rclone.Direction)) error {
 			<-release
 			return nil
 		}, 0)
@@ -129,7 +131,7 @@ func TestFailureStates(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			d := New(job(config.RolePush, ""), func(context.Context, string, func()) error { return tt.err }, 0)
+			d := New(job(config.RolePush, ""), func(context.Context, string, func(), func(rclone.Direction)) error { return tt.err }, 0)
 			await := start(t, d)
 			ev := await(tt.want)
 			if tt.msg != "" && ev.Message != tt.msg {
@@ -141,7 +143,7 @@ func TestFailureStates(t *testing.T) {
 
 func TestStopCancelsTheRunningPass(t *testing.T) {
 	started := make(chan struct{})
-	d := New(job(config.RolePush, ""), func(ctx context.Context, _ string, _ func()) error {
+	d := New(job(config.RolePush, ""), func(ctx context.Context, _ string, _ func(), _ func(rclone.Direction)) error {
 		close(started)
 		<-ctx.Done()
 		return ctx.Err()
@@ -157,7 +159,7 @@ func TestStopCancelsTheRunningPass(t *testing.T) {
 }
 
 func TestResyncIsFlagged(t *testing.T) {
-	d := New(job(config.RoleBisync, ""), func(_ context.Context, _ string, onResync func()) error {
+	d := New(job(config.RoleBisync, ""), func(_ context.Context, _ string, onResync func(), _ func(rclone.Direction)) error {
 		onResync()
 		return nil
 	}, 0)
@@ -204,4 +206,25 @@ func TestSlowSubscribersDoNotBlockTheDaemon(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("emit blocked on a subscriber that never reads")
 	}
+}
+
+func TestBisyncDirectionFollowsRclone(t *testing.T) {
+	d := New(job(config.RoleBisync, ""), func(_ context.Context, _ string, _ func(), onDir func(rclone.Direction)) error {
+		onDir(rclone.Download)
+		onDir(rclone.Upload)
+		return nil
+	}, 0)
+	await := start(t, d)
+	await(StateDownloading)
+	await(StateUploading)
+}
+
+func TestPushIgnoresReportedDirection(t *testing.T) {
+	d := New(job(config.RolePush, ""), func(_ context.Context, _ string, _ func(), onDir func(rclone.Direction)) error {
+		onDir(rclone.Download)
+		return nil
+	}, 0)
+	await := start(t, d)
+	await(StateUploading)
+	await(StateSynced) // a download event in between would have been skipped past
 }

@@ -15,7 +15,9 @@ type Options struct {
 	Force bool
 	// Resync makes a bisync run rebuild its baseline (newer file wins).
 	Resync bool
-	Now    time.Time
+	// JSONLog makes rclone log JSON lines, which Run can follow for events.
+	JSONLog bool
+	Now     time.Time
 }
 
 // Args builds the rclone command line (without the binary name) for a job.
@@ -25,6 +27,9 @@ func Args(j config.Job, o Options) ([]string, error) {
 	common := []string{"--create-empty-src-dirs", "--stats", "1m", "-v"}
 	if j.FilterFile != "" {
 		common = append(common, "--filter-from", j.FilterFile)
+	}
+	if o.JSONLog {
+		common = append(common, "--use-json-log")
 	}
 	if o.DryRun {
 		common = append(common, "--dry-run")

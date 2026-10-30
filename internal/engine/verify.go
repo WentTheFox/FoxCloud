@@ -79,7 +79,7 @@ func (e *Engine) Verify(ctx context.Context, name string, n int, maxSize string)
 	// a file name are not mistaken for comments or trimmed away.
 	checkArgs := []string{"check", job.LocalPath, rclone.CryptRemote(job.RemotePath),
 		"--download", "--one-way", "--files-from-raw", list.Name(), "-v"}
-	if _, err := rclone.Run(ctx, e.Rclone, checkArgs, env, e.Out); err != nil {
+	if _, err := rclone.Run(ctx, e.Rclone, checkArgs, env, e.Out, nil); err != nil {
 		return res, fmt.Errorf("verification found differences or errors: %w", err)
 	}
 	return res, nil

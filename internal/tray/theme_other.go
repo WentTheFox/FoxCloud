@@ -1,7 +1,14 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package tray
 
-// DetectTheme assumes a dark panel, which is what most Linux panels are;
-// there is no portable way to ask. Use the tray's -theme flag to override.
+import "context"
+
+// DetectTheme assumes a dark panel; there is no portable way to ask here.
 func DetectTheme() Theme { return ThemeDark }
+
+// WatchTheme has nothing to listen to on this platform.
+func WatchTheme(ctx context.Context, onChange func(Theme)) error {
+	<-ctx.Done()
+	return nil
+}

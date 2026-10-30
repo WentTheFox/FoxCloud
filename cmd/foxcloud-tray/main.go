@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	theme := flag.String("theme", "auto", "icon palette: auto, dark (for dark panels) or light")
+	theme := flag.String("theme", "auto", "icon palette: auto (follows the desktop), dark (for dark panels) or light")
 	showVersion := flag.Bool("version", false, "print the build version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -28,11 +28,12 @@ func main() {
 	}
 
 	t := tray.DetectTheme()
+	follow := true
 	switch *theme {
 	case "dark":
-		t = tray.ThemeDark
+		t, follow = tray.ThemeDark, false
 	case "light":
-		t = tray.ThemeLight
+		t, follow = tray.ThemeLight, false
 	case "auto":
 	default:
 		fmt.Fprintf(os.Stderr, "foxcloud-tray: unknown theme %q\n", *theme)
@@ -46,7 +47,7 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	tray.Run(ctx, sock, t, func(format string, args ...any) {
+	tray.Run(ctx, sock, t, follow, func(format string, args ...any) {
 		fmt.Fprintf(os.Stderr, "foxcloud-tray: "+format+"\n", args...)
 	})
 }

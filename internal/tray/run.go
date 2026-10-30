@@ -14,8 +14,9 @@ import (
 
 // Run shows the tray icon and follows the daemon at sock until the user
 // quits or ctx is cancelled. It blocks, and must be called from the main
-// goroutine on some platforms.
-func Run(ctx context.Context, sock string, theme Theme, logf func(string, ...any)) {
+// goroutine on some platforms. With followTheme the icons switch palette when
+// the desktop's theme changes; otherwise theme stays as given.
+func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf func(string, ...any)) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -98,6 +99,19 @@ func Run(ctx context.Context, sock string, theme Theme, logf func(string, ...any
 				systray.Quit()
 			}
 		}()
+		if followTheme {
+			go func() {
+				err := WatchTheme(ctx, func(t Theme) {
+					mu.Lock()
+					defer mu.Unlock()
+					theme = t
+					render()
+				})
+				if err != nil {
+					logf("not following theme changes: %v", err)
+				}
+			}()
+		}
 		go func() {
 			err := daemon.Follow(ctx, sock, func(ev daemon.Event) {
 				mu.Lock()

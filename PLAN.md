@@ -172,10 +172,12 @@ docs/               setup guides
   now), the "service not running" state with the amber icon, and the update
   notice the daemon publishes. It reconnects without polling by watching the
   socket's directory (`daemon.Follow`). Icons are generated from the SVGs by
-  `tools/genicons` (its own module) into `internal/tray/icons`. Theme is read
-  once at start on Windows and assumed dark on Linux (`-theme` overrides).
+  `tools/genicons` (its own module) into `internal/tray/icons`. The theme
+  follows the desktop live, event-driven: a registry change notification on
+  Windows, the portal's `SettingChanged` D-Bus signal on Linux (`-theme dark|light`
+  pins it; without a portal it stays dark).
   Autostart: a Run-key entry on Windows, an XDG autostart file on Linux. Open:
-  live theme changes, a "restarting to update" state, tray in the release
+  a "restarting to update" state, tray in the release
   archives' updater (`foxcloud update` still swaps only `foxcloud` and
   `foxcloudd`), and the Plasma widget.
 

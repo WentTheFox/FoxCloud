@@ -138,7 +138,7 @@ docs/               setup guides
   `WINDOWS_SIGN_PFX_BASE64` and `WINDOWS_SIGN_PFX_PASSWORD` (offline copy in
   `D:\Backups\foxcloud\signing`, public certificate in
   `packaging/windows/`). Nothing else is signed, no macOS notarisation, so
-  SmartScreen and Gatekeeper will still warn. Not yet run on GitHub. Later:
+  SmartScreen and Gatekeeper will still warn. First release `v0.1.0` built and signed on GitHub. Later:
   the packaging milestones plug into the same release job.
 
 - **Automatic updates.** The daemon holds access to the encryption key, so

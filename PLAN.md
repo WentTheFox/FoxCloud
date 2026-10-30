@@ -169,7 +169,10 @@ docs/               setup guides
     is a real push with no polling: measured on the Storage Box, its restricted
     shell has `tail` (GNU coreutils 9.4), `stat`, `dd`, `cat`, and a record
     appended through `dd oflag=append conv=notrunc` reached a listening
-    `tail -F` in under a second. Fallback when the connection is down (and for
+    `tail -F` in under a second, and a connection kept alive with
+    `ServerAliveInterval=30` still delivered a record after about 280 s idle
+    (longer idles and reconnects after a network change are untested).
+    Fallback when the connection is down (and for
     the first catch-up): `stat` one stamp file that every writer touches, every
     30 s, which was agreed as fine for the server. The stamp says "look at the
     journals"; the journals say what changed.
@@ -179,9 +182,7 @@ docs/               setup guides
     the next bisync sees "new on both sides, identical". Deletions and moves
     need care: only bisync can tell a delete from a conflict.
   - Open: appending with `dd` is not atomic against two machines writing one
-    file, hence one journal file per machine; how long `tail -F` survives idle
-    (a 5 minute idle test was started; see below if it is filled in); journal
-    rotation and compaction; whether the writer records full-pass changes too
+    file, hence one journal file per machine; journal rotation and compaction; whether the writer records full-pass changes too
     (from rclone's JSON log) or only file-by-file uploads.
 
 - **Incremental sync and shutdown guard (built; the Windows block reason and

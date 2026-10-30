@@ -25,7 +25,26 @@ const DefaultMaxDelete = 10
 type Config struct {
 	Remote Remote `toml:"remote"`
 	Crypt  Crypt  `toml:"crypt"`
+	Daemon Daemon `toml:"daemon"`
 	Jobs   []Job  `toml:"job"`
+}
+
+// DefaultStartupDelay is how long the daemon holds off its first sync pass,
+// so boot-time disk activity is not competing with an instantly started sync.
+const DefaultStartupDelay = 2 * time.Minute
+
+type Daemon struct {
+	// StartupDelay is a Go duration such as "2m"; "0" turns the hold off.
+	StartupDelay string `toml:"startup_delay"`
+}
+
+// StartupDelayDuration returns the hold before the first pass.
+func (d Daemon) StartupDelayDuration() time.Duration {
+	if d.StartupDelay == "" {
+		return DefaultStartupDelay
+	}
+	v, _ := time.ParseDuration(d.StartupDelay)
+	return v
 }
 
 // Remote describes the SFTP server. Either set SSHHost to a Host entry from
@@ -140,6 +159,12 @@ func (c *Config) normalise(baseDir string) {
 func (c *Config) Validate() error {
 	if c.Remote.SSHHost == "" && (c.Remote.Host == "" || c.Remote.User == "") {
 		return fmt.Errorf("[remote] needs ssh_host, or both host and user")
+	}
+	if c.Daemon.StartupDelay != "" {
+		d, err := time.ParseDuration(c.Daemon.StartupDelay)
+		if err != nil || d < 0 {
+			return fmt.Errorf("[daemon] startup_delay %q is not a duration like \"2m\" or \"0\"", c.Daemon.StartupDelay)
+		}
 	}
 	if len(c.Jobs) == 0 {
 		return fmt.Errorf("no [[job]] defined")

@@ -8,16 +8,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/WentTheFox/FoxCloud/internal/config"
+	"github.com/WentTheFox/FoxCloud/internal/app"
+	"github.com/WentTheFox/FoxCloud/internal/daemon"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
 	"github.com/WentTheFox/FoxCloud/internal/secret"
-	"github.com/WentTheFox/FoxCloud/internal/state"
 )
 
 const usage = `usage: foxcloud [-config path] <command> [args]
@@ -30,6 +29,9 @@ commands:
   verify [-n 25] [-max-size 200M] <job>
                                   download a random sample, decrypt it and compare with the originals
   resume <job>                    clear a pause after fixing the cause
+  sync-now <job>                  ask the running daemon to sync a job now
+  stop <job>                      ask the daemon to cancel a job's running pass
+  watch                           follow what the daemon's jobs are doing
   secret generate                 create the crypt master key in the OS keyring
   secret show [name]              print a secret, to back it up offline
   secret set <name>               store a secret read from stdin (restore a backup)
@@ -55,26 +57,15 @@ func run() error {
 		return secretCmd(flag.Args()[1:])
 	}
 
-	path := *configPath
-	if path == "" {
-		var err error
-		if path, err = config.DefaultPath(); err != nil {
-			return err
-		}
+	switch flag.Arg(0) {
+	case "sync-now", "stop", "watch":
+		return daemonCmd(flag.Arg(0), flag.Args()[1:])
 	}
-	cfg, err := config.Load(path)
+
+	_, e, err := app.Load(*configPath, os.Stderr)
 	if err != nil {
 		return err
 	}
-	dir, err := state.Dir()
-	if err != nil {
-		return err
-	}
-	bin, err := exec.LookPath("rclone")
-	if err != nil {
-		return errors.New("rclone not found in PATH")
-	}
-	e := &engine.Engine{Cfg: cfg, Store: state.Store{Dir: dir}, Rclone: bin, Out: os.Stderr}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -197,6 +188,42 @@ func status(e *engine.Engine, args []string) error {
 			fmt.Printf("  PAUSED: %s\n", st.Paused.Message)
 		}
 	}
+	return nil
+}
+
+// daemonCmd handles the commands that talk to a running foxcloudd.
+func daemonCmd(cmd string, args []string) error {
+	sock, err := daemon.SocketPath()
+	if err != nil {
+		return err
+	}
+	notRunning := func(err error) error {
+		if errors.Is(err, daemon.ErrNotRunning) {
+			return fmt.Errorf("%w; use `foxcloud run <job>` for a single pass", err)
+		}
+		return err
+	}
+	if cmd == "watch" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		return notRunning(daemon.Watch(ctx, sock, func(ev daemon.Event) {
+			line := fmt.Sprintf("%s  %-12s %s", ev.At.Local().Format(time.TimeOnly), ev.Job, ev.State)
+			if ev.Message != "" {
+				line += "  " + ev.Message
+			}
+			if ev.Until != nil {
+				line += "  (until " + ev.Until.Local().Format(time.TimeOnly) + ")"
+			}
+			fmt.Println(line)
+		}))
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("%s needs exactly one job name", cmd)
+	}
+	if _, err := daemon.Do(sock, daemon.Request{Cmd: cmd, Job: args[0]}); err != nil {
+		return notRunning(err)
+	}
+	fmt.Printf("%s: asked the daemon (%s)\n", args[0], cmd)
 	return nil
 }
 

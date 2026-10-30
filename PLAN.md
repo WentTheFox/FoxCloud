@@ -128,3 +128,67 @@ docs/               setup guides
     added it has to be called out as the one place polling is unavoidable and
     kept to a short, bounded window.
   - `sync-now` and a manual resume skip the hold.
+
+- **CI builds for every platform.** A GitHub Actions workflow that vets, tests
+  and builds `foxcloud` and `foxcloudd` for:
+
+  | OS      | amd64 | arm64 |
+  |---------|-------|-------|
+  | Windows | yes   | yes   |
+  | Linux   | yes   | yes   |
+  | macOS   | no    | yes   |
+
+  macOS gets arm64 only (Intel Macs are out). Notes:
+  - Build with `CGO_ENABLED=0`: the keyring library is pure Go on all three
+    systems (dbus on Linux, the system API on Windows, the `security` tool on
+    macOS), so plain cross-compilation works from one runner.
+  - Run the tests natively on each OS (the unix-socket and mount-check code
+    differs per platform), not only on Linux.
+  - Stamp the version into the binaries with `-ldflags`, build on tags, publish
+    archives plus a checksums file as a GitHub release.
+  - Open: Windows Authenticode signing and macOS notarisation both need paid
+    certificates or an Apple developer account. Unsigned binaries trigger
+    SmartScreen and Gatekeeper warnings, so decide whether to pay for that
+    before the first public release.
+  - The packaging milestones (service, systemd units, tray, widget, installers)
+    plug into the same release job later.
+
+- **Automatic updates.** The daemon holds access to the encryption key, so
+  updates are a high-trust path and need care:
+  - Releases are signed, and the public key is built into the binary. An update
+    is installed only if the signature and checksum verify.
+  - Never swap the binary in the middle of a sync pass. Wait for the job to go
+    idle, then restart. Windows cannot overwrite a running executable, so it
+    needs a rename-and-restart step or a small helper.
+  - Checking for an update is a periodic network request, the one thing here
+    that is not event-driven. Keep it rare (about once a day with jitter, and
+    once at start-up after the settle hold), make it easy to turn off, and say
+    so in the docs. Where a package manager is used (winget, Homebrew, an AUR
+    package), let it do the updating instead and skip the built-in updater.
+  - Show "update available" and "restarting to update" in the tray, and keep
+    the previous binary so a failed update can roll back.
+
+- **A "daemon not running" icon.** The old tray shows a distinct amber warning
+  icon, a "service not running" line, and disables its actions when nothing is
+  listening. FoxCloud needs the same, but it is a client-side state: the daemon
+  cannot report that it is gone. A client learns it from the event stream
+  closing (see `daemon.Watch`, which returns `ErrNotRunning`), so no polling is
+  needed to notice. Reconnecting without polling can watch the socket's
+  directory for the socket file to reappear. This is a state beyond the seven
+  status icons and needs its own amber icon in both palettes.
+
+- **Bisync and a changed filter file.** rclone stores a checksum of the filter
+  file and demands a full `--resync` when it changes. The engine classifies
+  that error but does not yet recover from it. A `bisync` job needs either an
+  explicit "filters changed, resync needed" pause or a guarded automatic
+  resync. `push` jobs are not affected.
+
+- **Real transfer direction.** The daemon currently derives the uploading,
+  downloading or syncing state from the job's role. For `bisync` it should
+  follow what rclone is actually transferring, read from its JSON log stream
+  (`--use-json-log`), so the icon moves between up, down and both as a pass
+  changes direction. That keeps it event-driven, with no polling of rclone.
+
+- **Daemon as a service.** The daemon runs in the foreground and logs to
+  stderr. Wrapping it (Windows service, systemd user unit) and writing its log
+  to a file belongs with the packaging milestones.

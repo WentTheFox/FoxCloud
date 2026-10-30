@@ -35,6 +35,9 @@ type Engine struct {
 type RunOptions struct {
 	DryRun bool
 	Force  bool
+	// OnResync is called when the pass is a full bisync resync, which has no
+	// meaningful progress estimate.
+	OnResync func()
 }
 
 func (e *Engine) now() time.Time {
@@ -76,6 +79,9 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 	resync := job.Role == config.RoleBisync && !st.Resynced
 	if resync {
 		fmt.Fprintln(e.Out, "first bisync run: establishing baseline with --resync (newer wins)")
+		if opts.OnResync != nil {
+			opts.OnResync()
+		}
 	}
 	args, err := rclone.Args(job, rclone.Options{
 		DryRun: opts.DryRun, Force: opts.Force, Resync: resync, Now: e.now(),

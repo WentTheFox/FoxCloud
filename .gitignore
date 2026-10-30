@@ -1,0 +1,7 @@
+/bin/
+/dist/
+*.exe
+*.log
+.idea/
+config.toml
+*.key

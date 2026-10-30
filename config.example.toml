@@ -1,0 +1,38 @@
+# FoxCloud config (draft schema, subject to change while the engine is built).
+
+[remote]
+# SFTP host holding the encrypted data. Hetzner Storage Boxes use port 23.
+host = "uXXXXXX.your-storagebox.de"
+port = 23
+user = "uXXXXXX"
+key_file = "~/.ssh/foxcloud_ed25519"
+# Pinned SSH host key fingerprint (verified by `foxcloud init`).
+host_key = "SHA256:..."
+path = "/foxcloud"
+
+[crypt]
+encrypt_filenames = true
+encrypt_directory_names = true
+# Command printing the crypt password / salt (backed by the OS keychain).
+password_command = ""
+salt_command = ""
+
+# One table per job. Roles: push, pull, bisync, mount.
+[[job]]
+name = "data"
+role = "push"
+local_path = "~/Data"
+interval = "15m"
+watch = true
+require_mount = ""          # sync only if this is a mount point
+max_delete = 5
+backup_dir = "~/Data.foxcloud-backup"
+filter_file = "filters.txt"
+
+# Laptop example:
+# [[job]]
+# name = "cloud"
+# role = "mount"
+# mount_point = "~/Cloud"
+# cache_mode = "full"
+# cache_max_size = "100G"

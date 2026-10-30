@@ -91,7 +91,7 @@ func (m *Model) Icon() Icon {
 			both = true
 		case daemon.StateWaiting:
 			waiting = true
-		case daemon.StateSynced:
+		case daemon.StateSynced, daemon.StateMounted:
 			synced = true
 		}
 	}

@@ -299,3 +299,38 @@ func TestUpdateNoticeReachesSubscribersAndSnapshot(t *testing.T) {
 		t.Error("a later subscriber's snapshot lacks the update notice")
 	}
 }
+
+func TestMountJobsAreSupervised(t *testing.T) {
+	old := MountRetry
+	MountRetry = 20 * time.Millisecond
+	defer func() { MountRetry = old }()
+
+	var attempts atomic.Int32
+	jobs := []config.Job{{Name: "m", Role: config.RoleMount, MountPoint: "X:"}}
+	d := New(jobs, ok, 0)
+	d.Mount = func(ctx context.Context, _ string, onReady func()) error {
+		if attempts.Add(1) == 1 {
+			return fmt.Errorf("winfsp missing") // first try fails
+		}
+		onReady()
+		<-ctx.Done() // then the mount stays up
+		return nil
+	}
+	await := start(t, d)
+	await(StateFailed)
+	ev := await(StateMounted)
+	if ev.Message == "" {
+		t.Error("the mounted event should say where")
+	}
+	if attempts.Load() != 2 {
+		t.Errorf("attempts = %d, want 2", attempts.Load())
+	}
+}
+
+func TestMountPauseIsReported(t *testing.T) {
+	jobs := []config.Job{{Name: "m", Role: config.RoleMount, MountPoint: "X:"}}
+	d := New(jobs, ok, 0)
+	d.Mount = func(context.Context, string, func()) error { return engine.ErrPaused }
+	await := start(t, d)
+	await(StatePaused)
+}

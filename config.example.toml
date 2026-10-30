@@ -48,6 +48,9 @@ filter_file = "filters.txt"
 # [[job]]
 # name = "cloud"
 # role = "mount"
-# mount_point = "~/Cloud"
-# cache_mode = "full"
-# cache_max_size = "100G"
+# mount_point = "~/Cloud"     # Windows: a free drive letter such as "X:" (needs WinFsp);
+#                             # Linux: an empty folder (needs fuse3)
+# remote_path = ""            # mount only this folder of the remote; empty is all of it
+# cache_mode = "full"         # off, minimal, writes or full
+# cache_max_size = "100G"     # cap the on-disk cache; least recently used files go first
+# The daemon keeps the mount up and retries a minute after it drops.

@@ -47,3 +47,16 @@ func TestFilterChangePausesBeforeResync(t *testing.T) {
 		t.Errorf("got %s (pause %v), want %s with pause", f.Kind, f.Pause, KindFilterChange)
 	}
 }
+
+func TestMountFailures(t *testing.T) {
+	cases := map[string]Kind{
+		"CRITICAL: Fatal error: failed to mount FUSE fs: mount stopped before calling Init: mount failed: cgofuse: cannot find winfsp": KindNoMountDriver,
+		"fusermount3: command not found":                              KindNoMountDriver,
+		"failed to mount FUSE fs: mountpoint path already exists: X:": KindMountBusy,
+	}
+	for out, want := range cases {
+		if got := Classify(out).Kind; got != want {
+			t.Errorf("Classify(%q) = %s, want %s", out, got, want)
+		}
+	}
+}

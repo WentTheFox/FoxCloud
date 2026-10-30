@@ -68,3 +68,29 @@ func Args(j config.Job, o Options) ([]string, error) {
 	}
 	return append(args, common...), nil
 }
+
+// DefaultCacheMode is the VFS cache mode for mount jobs: "full" caches whole
+// files on read and write, which is what applications expect of a disk.
+const DefaultCacheMode = "full"
+
+// MountArgs builds the rclone command line for a mount job. The remote is the
+// crypt remote's root, or the job's remote_path below it. The mount runs in
+// the foreground so the daemon can supervise it.
+func MountArgs(j config.Job) ([]string, error) {
+	if j.Role != config.RoleMount {
+		return nil, fmt.Errorf("job %q is not a mount job", j.Name)
+	}
+	mode := j.CacheMode
+	if mode == "" {
+		mode = DefaultCacheMode
+	}
+	args := []string{"mount", CryptRemote(j.RemotePath), j.MountPoint,
+		"--vfs-cache-mode", mode, "-v"}
+	if j.CacheMaxSize != "" {
+		args = append(args, "--vfs-cache-max-size", j.CacheMaxSize)
+	}
+	if j.FilterFile != "" {
+		args = append(args, "--filter-from", j.FilterFile)
+	}
+	return args, nil
+}

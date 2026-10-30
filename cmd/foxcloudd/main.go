@@ -66,6 +66,9 @@ func run() error {
 		return e.Run(ctx, job, engine.RunOptions{OnResync: onResync, OnDirection: onDirection})
 	}, cfg.Daemon.StartupDelayDuration())
 
+	d.Mount = func(ctx context.Context, job string, onReady func()) error {
+		return e.Mount(ctx, job, onReady)
+	}
 	d.Logf = func(format string, args ...any) {
 		fmt.Fprintf(logw, "foxcloudd: "+format+"\n", args...)
 	}

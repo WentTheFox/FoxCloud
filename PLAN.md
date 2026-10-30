@@ -109,6 +109,19 @@ docs/               setup guides
 
 ## Backlog
 
+- **Mount role (built, never run against a real mount).** The daemon runs
+  `rclone mount --vfs-cache-mode <mode> --vfs-cache-max-size <size>` in the
+  foreground for each `mount` job, reports `mounted` (the synced icon), and
+  retries a minute after a failure; missing WinFsp/FUSE and a busy mount point
+  are classified in plain English. Readiness is the one deliberate poll: a
+  250 ms check, bounded to 30 s, that the mount point has appeared, because
+  rclone gives a foreground mount no ready signal that works on every OS
+  (replace it if one turns up). Neither WinFsp nor FUSE was available when this
+  was written, so only the command line, the classifier and the supervision
+  were tested. Open: `foxcloud pin <path>` to keep chosen folders in the cache
+  (a pull job with a filter file does this today), an unmount on `stop`, and
+  the required-mount check for jobs that sit on the mount.
+
 - **File watching (done for `push`).** `watch = true` syncs 30 s after changes
   stop, using OS file notifications (fsnotify), one watch per folder. On Linux
   the inotify limit (`fs.inotify.max_user_watches`) may be too low for a very

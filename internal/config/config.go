@@ -198,6 +198,11 @@ func (c *Config) Validate() error {
 			if j.MountPoint == "" {
 				return fmt.Errorf("job %q: mount_point is required for role %q", j.Name, j.Role)
 			}
+			switch j.CacheMode {
+			case "", "off", "minimal", "writes", "full":
+			default:
+				return fmt.Errorf("job %q: cache_mode %q is not one of off, minimal, writes, full", j.Name, j.CacheMode)
+			}
 		default:
 			return fmt.Errorf("job %q: unknown role %q (want push, pull, bisync or mount)", j.Name, j.Role)
 		}

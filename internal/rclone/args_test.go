@@ -62,3 +62,25 @@ func TestCryptRemote(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestMountArgs(t *testing.T) {
+	j := config.Job{Name: "cloud", Role: config.RoleMount, MountPoint: "X:", RemotePath: "/photos", CacheMaxSize: "100G", FilterFile: "/f.txt"}
+	got, err := MountArgs(j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"mount", "foxcrypt:photos", "X:", "--vfs-cache-mode", "full", "-v",
+		"--vfs-cache-max-size", "100G", "--filter-from", "/f.txt"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MountArgs() =\n%v\nwant\n%v", got, want)
+	}
+
+	j.CacheMode = "writes"
+	got, _ = MountArgs(j)
+	if got[4] != "writes" {
+		t.Errorf("cache mode = %q, want writes", got[4])
+	}
+	if _, err := MountArgs(config.Job{Role: config.RolePush}); err == nil {
+		t.Error("a push job must not produce mount args")
+	}
+}

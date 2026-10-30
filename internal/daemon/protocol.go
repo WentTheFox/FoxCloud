@@ -23,6 +23,7 @@ const (
 	StateSynced      State = "synced"
 	StateFailed      State = "failed"
 	StatePaused      State = "paused"
+	StateMounted     State = "mounted" // a mount job's drive is up; shown with the synced icon
 )
 
 // Event is the current state of one job (or, with an empty Job, a notice from

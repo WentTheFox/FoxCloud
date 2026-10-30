@@ -19,14 +19,24 @@ import (
 // uploading and downloading.
 type Runner func(ctx context.Context, job string, onResync func(), onDirection func(rclone.Direction)) error
 
+// Mounter runs a mount job until ctx is cancelled or the mount dies, calling
+// onReady once the mount is usable.
+type Mounter func(ctx context.Context, job string, onReady func()) error
+
+// MountRetry is how long a failed mount waits before it is tried again.
+var MountRetry = time.Minute
+
 // Daemon schedules the jobs and publishes their state.
 type Daemon struct {
 	run Runner
 	// Logf receives the daemon's own diagnostics; the default discards them.
 	Logf          func(format string, args ...any)
 	WatchDebounce time.Duration
-	startupDelay  time.Duration
-	jobs          []config.Job
+	// Mount runs mount jobs. Without it they are left alone.
+	Mount        Mounter
+	mounts       []config.Job
+	startupDelay time.Duration
+	jobs         []config.Job
 
 	mu     sync.Mutex
 	state  map[string]Event
@@ -50,6 +60,7 @@ func New(jobs []config.Job, run Runner, startupDelay time.Duration) *Daemon {
 	}
 	for _, j := range jobs {
 		if j.Role == config.RoleMount {
+			d.mounts = append(d.mounts, j)
 			continue
 		}
 		d.jobs = append(d.jobs, j)
@@ -68,7 +79,48 @@ func (d *Daemon) Run(ctx context.Context) {
 			d.loop(ctx, j)
 		}()
 	}
+	if d.Mount != nil {
+		for _, j := range d.mounts {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				d.mountLoop(ctx, j)
+			}()
+		}
+	}
 	wg.Wait()
+}
+
+// mountLoop keeps one mount job's mount up: it runs, and if the mount ends
+// without being asked to, says why and tries again after MountRetry. A pause
+// (something a person has to fix) is not retried until resumed, which the
+// next attempt notices.
+func (d *Daemon) mountLoop(ctx context.Context, j config.Job) {
+	for {
+		d.emit(Event{Job: j.Name, State: StateIdle, Message: "mounting"})
+		err := d.Mount(ctx, j.Name, func() {
+			d.emit(Event{Job: j.Name, State: StateMounted, Message: "mounted at " + j.MountPoint})
+		})
+		if ctx.Err() != nil {
+			return
+		}
+		var se *engine.SyncError
+		switch {
+		case errors.Is(err, engine.ErrPaused):
+			d.emit(Event{Job: j.Name, State: StatePaused, Message: err.Error()})
+		case errors.As(err, &se) && se.Pause:
+			d.emit(Event{Job: j.Name, State: StatePaused, Message: se.Message})
+		default:
+			d.emit(Event{Job: j.Name, State: StateFailed, Message: err.Error()})
+		}
+		t := time.NewTimer(MountRetry)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+		}
+	}
 }
 
 // loop is one job's lifetime: hold, then pass, wait, pass, wait... Waiting is

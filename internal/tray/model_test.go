@@ -79,3 +79,11 @@ func TestDescribeWaitingAndFailures(t *testing.T) {
 		t.Errorf("failed line = %q", got)
 	}
 }
+
+func TestMountedShowsAsSynced(t *testing.T) {
+	m := NewModel()
+	m.Apply(ev("cloud", daemon.StateMounted))
+	if m.Icon() != IconSynced {
+		t.Errorf("icon = %s, want %s", m.Icon(), IconSynced)
+	}
+}

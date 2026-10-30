@@ -6,15 +6,17 @@ import "regexp"
 type Kind string
 
 const (
-	KindPermissions  Kind = "permissions"
-	KindAuth         Kind = "auth"
-	KindNetwork      Kind = "network"
-	KindCaseClash    Kind = "case-clash"
-	KindTooManyDel   Kind = "too-many-deletes"
-	KindNameTooLong  Kind = "name-too-long"
-	KindNeedsResync  Kind = "needs-resync"
-	KindFilterChange Kind = "filters-changed"
-	KindUnknown      Kind = "unknown"
+	KindPermissions   Kind = "permissions"
+	KindAuth          Kind = "auth"
+	KindNetwork       Kind = "network"
+	KindCaseClash     Kind = "case-clash"
+	KindTooManyDel    Kind = "too-many-deletes"
+	KindNameTooLong   Kind = "name-too-long"
+	KindNeedsResync   Kind = "needs-resync"
+	KindFilterChange  Kind = "filters-changed"
+	KindNoMountDriver Kind = "no-mount-driver"
+	KindMountBusy     Kind = "mount-busy"
+	KindUnknown       Kind = "unknown"
 )
 
 // Failure is a classified rclone failure.
@@ -33,6 +35,10 @@ type rule struct {
 
 // Order matters: the first matching rule wins, so specific causes go first.
 var rules = []rule{
+	{regexp.MustCompile(`(?i)cannot find winfsp|winfsp.*not (?:found|installed)|fusermount[^\n]*(?:not found|no such file)|fuse device not found|/dev/fuse`),
+		Failure{KindNoMountDriver, "No file system driver for mounting was found. Install WinFsp (Windows, https://winfsp.dev) or FUSE (Linux: your distribution's fuse3 package), then restart the daemon.", false}},
+	{regexp.MustCompile(`(?i)mountpoint path already exists|already mounted|directory not empty|mount point is busy`),
+		Failure{KindMountBusy, "The mount point is already in use or not empty. Pick an unused drive letter or an empty folder as mount_point.", false}},
 	{regexp.MustCompile(`(?i)too many deletes|max-delete|Safety abort`),
 		Failure{KindTooManyDel, "The sync would delete more files than max_delete allows. Check that the source folder is intact, then resume.", true}},
 	{regexp.MustCompile(`(?i)differ(?:s|ing)? only (?:in|by) case|case[- ]insensitive`),

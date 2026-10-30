@@ -25,7 +25,8 @@ const (
 	StatePaused      State = "paused"
 )
 
-// Event is the current state of one job. The daemon sends one whenever a
+// Event is the current state of one job (or, with an empty Job, a notice from
+// the daemon itself). The daemon sends one whenever a
 // job's state changes, so clients never have to poll.
 type Event struct {
 	Job     string    `json:"job"`
@@ -34,6 +35,9 @@ type Event struct {
 	At      time.Time `json:"at"`
 	// Until is when a "waiting" hold ends.
 	Until *time.Time `json:"until,omitempty"`
+	// Update, on the one event whose Job is empty, is the newest release tag
+	// the daemon has found. That event describes the daemon, not a job.
+	Update string `json:"update,omitempty"`
 	// Resync marks a full bisync resync: there is no progress estimate for one.
 	Resync bool `json:"resync,omitempty"`
 }

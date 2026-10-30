@@ -73,6 +73,7 @@ func run() error {
 	if cfg.Update.CheckEnabled() && update.Releasable(version.Version) {
 		go update.Announce(runCtx, version.Version, cfg.Daemon.StartupDelayDuration()+time.Minute,
 			func(r update.Release) {
+				d.SetUpdate(r.Tag)
 				d.Logf("update available: %s (this is %s); run `foxcloud update` to install it", r.Tag, version.Version)
 			}, d.Logf)
 	}

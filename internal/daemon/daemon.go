@@ -210,6 +210,18 @@ func (d *Daemon) emit(ev Event) {
 	}
 }
 
+// SetUpdate records that a newer release exists and tells subscribers, so a
+// tray or widget can say so. It is a daemon-level event: its Job is empty.
+func (d *Daemon) SetUpdate(tag string) {
+	d.mu.Lock()
+	old := d.state[""].Update
+	d.mu.Unlock()
+	if old == tag {
+		return
+	}
+	d.emit(Event{Update: tag})
+}
+
 // Snapshot returns every job's current state, in job-name order.
 func (d *Daemon) Snapshot() []Event {
 	d.mu.Lock()

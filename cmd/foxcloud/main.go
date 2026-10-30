@@ -219,6 +219,10 @@ func daemonCmd(cmd string, args []string) error {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		return notRunning(daemon.Watch(ctx, sock, func(ev daemon.Event) {
+			if ev.Job == "" {
+				fmt.Printf("%s  update available: %s (run `foxcloud update`)\n", ev.At.Local().Format(time.TimeOnly), ev.Update)
+				return
+			}
 			line := fmt.Sprintf("%s  %-12s %s", ev.At.Local().Format(time.TimeOnly), ev.Job, ev.State)
 			if ev.Message != "" {
 				line += "  " + ev.Message

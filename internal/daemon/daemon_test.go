@@ -267,3 +267,35 @@ func TestWatchIsIgnoredForOtherRoles(t *testing.T) {
 		t.Errorf("passes = %d, want 1", passes.Load())
 	}
 }
+
+func TestUpdateNoticeReachesSubscribersAndSnapshot(t *testing.T) {
+	d := New(job(config.RolePush, ""), ok, time.Hour)
+	_, events, cancel := d.Subscribe()
+	defer cancel()
+
+	d.SetUpdate("v1.2.3")
+	d.SetUpdate("v1.2.3") // unchanged: no second notice
+	select {
+	case ev := <-events:
+		if ev.Job != "" || ev.Update != "v1.2.3" {
+			t.Errorf("event = %+v, want a daemon-level update notice", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no update event")
+	}
+	select {
+	case ev := <-events:
+		t.Errorf("repeated tag produced another event: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	snap, _, cancel2 := d.Subscribe()
+	defer cancel2()
+	found := false
+	for _, ev := range snap {
+		found = found || (ev.Job == "" && ev.Update == "v1.2.3")
+	}
+	if !found {
+		t.Error("a later subscriber's snapshot lacks the update notice")
+	}
+}

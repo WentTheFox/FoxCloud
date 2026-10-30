@@ -147,12 +147,38 @@ docs/               setup guides
   - Check how rclone's bisync `--case-insensitive` / `--ignore-case-sync`
     options and its own handling behave first; they may cover part of this.
 
-- **File watching (done for `push`).** `watch = true` syncs 30 s after changes
-  stop, using OS file notifications (fsnotify), one watch per folder. On Linux
-  the inotify limit (`fs.inotify.max_user_watches`) may be too low for a very
-  large tree; folders that cannot be watched are logged and the interval still
-  covers them. Changes to files the filter excludes also trigger a pass. Not
-  for `pull`/`bisync`, which would trigger themselves.
+- **Incremental sync and shutdown guard (built; the Windows block reason and
+  the real rclone calls are tested, a real shutdown and the Linux inhibitor are
+  not).** With `watch = true` on a `push` or `bisync` job, the daemon runs the
+  start-up pass, then watches the folder (fsnotify, one watch per folder; on
+  Linux mind `fs.inotify.max_user_watches`). Each burst of changes, once the
+  folder has been quiet for 3 s (30 s at most under constant activity), is
+  turned into operations by an in-memory picture of the tree (`internal/delta`)
+  and sent to the remote file by file:
+  - new and changed files are uploaded by name (`--files-from-raw`, so no
+    remote listing); rclone cannot combine that with a filter, so the job's
+    filter file is applied by FoxCloud itself (`internal/filter`, checked
+    against real rclone on a sample tree);
+  - a renamed file or folder is detected (same size and time, unique
+    look-alike) and done as one server-side `moveto` instead of a delete plus
+    a re-upload; an ambiguous pair is left as delete and upload;
+  - for `push`, deletions apply too (`purge` for folders), unless they exceed
+    `max_delete`, in which case a full pass decides;
+  - for `bisync`, only uploads happen, with `--update` so a file another machine
+    made newer is never overwritten; deletions and moves wait for the next full
+    pass, because only bisync can tell a delete from a conflict;
+  - lost events (watcher overflow), a failed upload or a pause hand over to a
+    normal full pass, which reports the cause properly.
+  The full pass (`interval`) is now a rare safety net for remote-side changes:
+  set it to hours, or leave it out and use `foxcloud sync-now`. Gaps: a file
+  created between the first pass and the watcher start waits for the next full
+  pass; a full pass's downloads under bisync make no-op upload attempts; the
+  incremental path does not update the recorded last-success time.
+  Pending uploads keep the machine from shutting down: while changes are
+  noticed but not yet uploaded, or a push/bisync pass runs, the daemon holds a
+  logind inhibitor lock on Linux (`shutdown:sleep`, blocks) and a shutdown
+  block reason on a hidden window on Windows (the "FoxCloud is still uploading
+  changes" screen; the user can still force it). A pull pass never holds it.
 
 - **Let the system settle after boot before the first sync.** The daemon and
   the tray must not start a pass the instant the machine comes up: boot-time

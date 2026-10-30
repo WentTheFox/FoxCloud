@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/WentTheFox/FoxCloud/internal/classify"
 	"github.com/WentTheFox/FoxCloud/internal/config"
+	"github.com/WentTheFox/FoxCloud/internal/delta"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
 	"github.com/WentTheFox/FoxCloud/internal/rclone"
 )
@@ -239,7 +241,7 @@ func TestWatchedPushJobSyncsAfterChange(t *testing.T) {
 		passes.Add(1)
 		return nil
 	}, 0)
-	d.WatchDebounce = 100 * time.Millisecond
+	d.WatchQuiet = 100 * time.Millisecond
 	await := start(t, d)
 	await(StateSynced)
 	time.Sleep(300 * time.Millisecond) // the watch starts after the first pass
@@ -247,24 +249,6 @@ func TestWatchedPushJobSyncsAfterChange(t *testing.T) {
 	await(StateSynced)
 	if passes.Load() < 2 {
 		t.Errorf("passes = %d, want a second one after the file changed", passes.Load())
-	}
-}
-
-func TestWatchIsIgnoredForOtherRoles(t *testing.T) {
-	dir := t.TempDir()
-	var passes atomic.Int32
-	jobs := []config.Job{{Name: "a", Role: config.RoleBisync, LocalPath: dir, Watch: true}}
-	d := New(jobs, func(context.Context, string, func(), func(rclone.Direction)) error {
-		passes.Add(1)
-		return nil
-	}, 0)
-	d.WatchDebounce = 50 * time.Millisecond
-	await := start(t, d)
-	await(StateSynced)
-	os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644)
-	time.Sleep(500 * time.Millisecond)
-	if passes.Load() != 1 {
-		t.Errorf("passes = %d, want 1", passes.Load())
 	}
 }
 
@@ -365,5 +349,113 @@ func TestExclusiveWaitsForRunningPassesAndBlocksNewOnes(t *testing.T) {
 	case <-entered:
 	case <-time.After(3 * time.Second):
 		t.Fatal("Exclusive never ran after the pass finished")
+	}
+}
+
+func TestPullJobsAreNotWatched(t *testing.T) {
+	dir := t.TempDir()
+	var passes atomic.Int32
+	jobs := []config.Job{{Name: "a", Role: config.RolePull, LocalPath: dir, Watch: true}}
+	d := New(jobs, func(context.Context, string, func(), func(rclone.Direction)) error {
+		passes.Add(1)
+		return nil
+	}, 0)
+	d.WatchQuiet = 50 * time.Millisecond
+	await := start(t, d)
+	await(StateSynced)
+	os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644)
+	time.Sleep(500 * time.Millisecond)
+	if passes.Load() != 1 {
+		t.Errorf("passes = %d, want 1", passes.Load())
+	}
+}
+
+// watched starts a push job over a temp folder with an Applier and a runner that
+// counts full passes.
+func watched(t *testing.T, apply Applier) (d *Daemon, dir string, passes *atomic.Int32, await func(State) Event) {
+	t.Helper()
+	dir = t.TempDir()
+	passes = new(atomic.Int32)
+	jobs := []config.Job{{Name: "a", Role: config.RolePush, LocalPath: dir, Watch: true}}
+	d = New(jobs, func(context.Context, string, func(), func(rclone.Direction)) error {
+		passes.Add(1)
+		return nil
+	}, 0)
+	d.WatchQuiet = 100 * time.Millisecond
+	d.Apply = apply
+	await = start(t, d)
+	await(StateSynced)
+	time.Sleep(300 * time.Millisecond) // the watch starts after the first pass
+	return d, dir, passes, await
+}
+
+func TestWatchedChangesUploadFileByFileWithoutAFullPass(t *testing.T) {
+	got := make(chan delta.Ops, 4)
+	_, dir, passes, await := watched(t, func(_ context.Context, _ string, ops delta.Ops) error {
+		got <- ops
+		return nil
+	})
+	os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o644)
+	ev := await(StateSynced)
+	select {
+	case ops := <-got:
+		if len(ops.Uploads) != 1 || ops.Uploads[0] != "new.txt" {
+			t.Errorf("ops = %+v", ops)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Apply was not called")
+	}
+	if ev.Message == "" {
+		t.Error("the synced event should say what was uploaded")
+	}
+	if passes.Load() != 1 {
+		t.Errorf("full passes = %d, want only the first", passes.Load())
+	}
+}
+
+func TestAFailedUploadFallsBackToAFullPass(t *testing.T) {
+	_, dir, passes, _ := watched(t, func(context.Context, string, delta.Ops) error {
+		return errors.New("network down")
+	})
+	os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o644)
+	deadline := time.Now().Add(5 * time.Second)
+	for passes.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if passes.Load() < 2 {
+		t.Error("a failed file-by-file upload must trigger a full pass")
+	}
+}
+
+func TestBusyIsReportedWhileChangesAreInFlight(t *testing.T) {
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var transitions []bool
+	d, dir, _, await := watched(t, func(ctx context.Context, _ string, _ delta.Ops) error {
+		<-release
+		return nil
+	})
+	d.OnBusy = func(b bool) { mu.Lock(); transitions = append(transitions, b); mu.Unlock() }
+	if d.Busy() {
+		t.Fatal("nothing is happening yet")
+	}
+	os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o644)
+	deadline := time.Now().Add(3 * time.Second)
+	for !d.Busy() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !d.Busy() {
+		t.Fatal("a noticed change must count as work in flight")
+	}
+	close(release)
+	await(StateSynced)
+	deadline = time.Now().Add(3 * time.Second)
+	for d.Busy() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if d.Busy() || len(transitions) != 2 || !transitions[0] || transitions[1] {
+		t.Errorf("busy = %v, transitions = %v, want [true false]", d.Busy(), transitions)
 	}
 }

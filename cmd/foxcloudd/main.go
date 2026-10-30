@@ -18,8 +18,10 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/app"
 	"github.com/WentTheFox/FoxCloud/internal/config"
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
+	"github.com/WentTheFox/FoxCloud/internal/delta"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
 	"github.com/WentTheFox/FoxCloud/internal/rclone"
+	"github.com/WentTheFox/FoxCloud/internal/shutdown"
 	"github.com/WentTheFox/FoxCloud/internal/update"
 	"github.com/WentTheFox/FoxCloud/internal/version"
 )
@@ -78,6 +80,21 @@ func run() error {
 		return e.Run(ctx, job, engine.RunOptions{OnResync: onResync, OnDirection: onDirection})
 	}, cfg.Daemon.StartupDelayDuration())
 
+	// Pending uploads keep the machine from shutting down.
+	guard := shutdown.New(func(format string, args ...any) {
+		fmt.Fprintf(logw, "foxcloudd: "+format+"\n", args...)
+	})
+	defer guard.Close()
+	d.OnBusy = func(busy bool) {
+		if busy {
+			guard.Hold("FoxCloud is still uploading changes")
+		} else {
+			guard.Release()
+		}
+	}
+	d.Apply = func(ctx context.Context, job string, ops delta.Ops) error {
+		return e.Apply(ctx, job, ops)
+	}
 	d.Mount = func(ctx context.Context, job string, onReady func()) error {
 		return e.Mount(ctx, job, onReady)
 	}

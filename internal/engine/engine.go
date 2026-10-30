@@ -25,6 +25,9 @@ type SyncError struct{ classify.Failure }
 func (e *SyncError) Error() string { return e.Message }
 
 type Engine struct {
+	// envFn replaces the real remote definition; tests point the remote at a
+	// local folder with it.
+	envFn  func(ctx context.Context) ([]string, error)
 	Cfg    *config.Config
 	Store  state.Store
 	Rclone string
@@ -153,6 +156,9 @@ func (e *Engine) Resume(name string) error {
 }
 
 func (e *Engine) remoteEnv(ctx context.Context) ([]string, error) {
+	if e.envFn != nil {
+		return e.envFn(ctx)
+	}
 	key, err := secret.Resolve(ctx, e.Cfg.Crypt.KeyCommand)
 	if err != nil {
 		return nil, err

@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/WentTheFox/FoxCloud/internal/config"
+	"github.com/WentTheFox/FoxCloud/internal/delta"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
+	"github.com/WentTheFox/FoxCloud/internal/filter"
 	"github.com/WentTheFox/FoxCloud/internal/rclone"
 	"github.com/WentTheFox/FoxCloud/internal/watch"
 )
@@ -30,14 +32,31 @@ var MountRetry = time.Minute
 type Daemon struct {
 	run Runner
 	// Logf receives the daemon's own diagnostics; the default discards them.
-	Logf          func(format string, args ...any)
-	WatchDebounce time.Duration
+	Logf func(format string, args ...any)
+	// WatchQuiet is how long a watched folder must stay silent before its
+	// changes are uploaded, and WatchMaxWait caps the wait under constant activity.
+	WatchQuiet   time.Duration
+	WatchMaxWait time.Duration
+	// Apply carries a few file changes over to the remote without a full pass.
+	// Without it a change just triggers a pass.
+	Apply Applier
+	// OnBusy is told when the daemon starts or stops having sync work in flight
+	// (a pass running, or changes noticed and not yet uploaded). The shutdown
+	// guard listens to it.
+	OnBusy func(busy bool)
 	// Mount runs mount jobs. Without it they are left alone.
 	Mount  Mounter
 	mounts []config.Job
 	// gate is held for reading by every running pass and for writing by
 	// Exclusive: a writer waits for the passes to finish and keeps new ones out.
-	gate         sync.RWMutex
+	gate sync.RWMutex
+	// jobMu serialises a job's passes with its file-by-file uploads.
+	jobMu map[string]*sync.Mutex
+	// busy counts the work in flight: running passes plus jobs with changes
+	// noticed but not yet handled (busyJobs).
+	busyMu       sync.Mutex
+	running      int
+	busyJobs     map[string]bool
 	startupDelay time.Duration
 	jobs         []config.Job
 
@@ -52,14 +71,17 @@ type Daemon struct {
 // startupDelay is the hold before each job's first pass.
 func New(jobs []config.Job, run Runner, startupDelay time.Duration) *Daemon {
 	d := &Daemon{
-		run:           run,
-		Logf:          func(string, ...any) {},
-		WatchDebounce: DefaultWatchDebounce,
-		startupDelay:  startupDelay,
-		state:         map[string]Event{},
-		subs:          map[chan Event]struct{}{},
-		trig:          map[string]chan struct{}{},
-		cancel:        map[string]context.CancelFunc{},
+		run:          run,
+		Logf:         func(string, ...any) {},
+		WatchQuiet:   DefaultWatchQuiet,
+		WatchMaxWait: DefaultWatchMaxWait,
+		jobMu:        map[string]*sync.Mutex{},
+		busyJobs:     map[string]bool{},
+		startupDelay: startupDelay,
+		state:        map[string]Event{},
+		subs:         map[chan Event]struct{}{},
+		trig:         map[string]chan struct{}{},
+		cancel:       map[string]context.CancelFunc{},
 	}
 	for _, j := range jobs {
 		if j.Role == config.RoleMount {
@@ -67,6 +89,7 @@ func New(jobs []config.Job, run Runner, startupDelay time.Duration) *Daemon {
 			continue
 		}
 		d.jobs = append(d.jobs, j)
+		d.jobMu[j.Name] = &sync.Mutex{}
 		d.trig[j.Name] = make(chan struct{}, 1)
 	}
 	return d
@@ -172,23 +195,130 @@ func (d *Daemon) loop(ctx context.Context, j config.Job) {
 	}
 }
 
-// DefaultWatchDebounce is how long a watched folder must stay quiet before the
-// change triggers a pass.
-const DefaultWatchDebounce = 30 * time.Second
+// Defaults for watching a folder.
+const (
+	DefaultWatchQuiet   = 3 * time.Second
+	DefaultWatchMaxWait = 30 * time.Second
+)
 
-// startWatching makes changes under a push job's folder trigger a pass. Only
-// push jobs: pull and bisync write into their own folder, so they would
-// trigger themselves.
+// Applier carries file changes over to the remote; engine.Engine.Apply is one.
+// It returns an error (engine.ErrNeedsFullPass among them) when a full pass
+// should run instead.
+type Applier func(ctx context.Context, job string, ops delta.Ops) error
+
+// setBusy and passBusy keep the in-flight count and tell OnBusy when it
+// crosses zero in either direction.
+func (d *Daemon) busyLocked() bool { return d.running > 0 || len(d.busyJobs) > 0 }
+
+func (d *Daemon) change(fn func()) {
+	d.busyMu.Lock()
+	was := d.busyLocked()
+	fn()
+	now := d.busyLocked()
+	d.busyMu.Unlock()
+	if was != now && d.OnBusy != nil {
+		d.OnBusy(now)
+	}
+}
+
+// Busy reports whether sync work is in flight right now.
+func (d *Daemon) Busy() bool {
+	d.busyMu.Lock()
+	defer d.busyMu.Unlock()
+	return d.busyLocked()
+}
+
+// startWatching makes changes under a push or bisync job's folder reach the
+// remote soon after they happen: the folder is watched, and each burst of
+// changes is uploaded file by file (see Applier), with a full pass only when
+// that cannot be trusted. Pull jobs are not watched: they write into their own
+// folder and would trigger themselves.
 func (d *Daemon) startWatching(ctx context.Context, j config.Job) {
-	if !j.Watch || j.Role != config.RolePush {
+	if !j.Watch || (j.Role != config.RolePush && j.Role != config.RoleBisync) {
 		return
 	}
+	var ix *delta.Index
+	opts := watch.Options{
+		Quiet:   d.WatchQuiet,
+		MaxWait: d.WatchMaxWait,
+		// The tree is read once the watches are in place, so nothing slips in
+		// between the two.
+		OnReady: func() {
+			f, err := filter.Load(j.FilterFile)
+			if err != nil {
+				d.Logf("job %s: filter file: %v; watching without a filter", j.Name, err)
+				f = &filter.Matcher{}
+			}
+			if ix, err = delta.Scan(j.LocalPath, f); err != nil {
+				d.Logf("job %s: scanning %s: %v", j.Name, j.LocalPath, err)
+			}
+		},
+		OnActive: func() { d.change(func() { d.busyJobs[j.Name] = true }) },
+		OnIdle:   func() { d.change(func() { delete(d.busyJobs, j.Name) }) },
+	}
 	go func() {
-		err := watch.Run(ctx, j.LocalPath, d.WatchDebounce, func() { d.SyncNow(j.Name) }, d.Logf)
+		err := watch.Batches(ctx, j.LocalPath, opts, func(b watch.Batch) { d.handleBatch(ctx, j, ix, b) }, d.Logf)
+		d.change(func() { delete(d.busyJobs, j.Name) })
 		if err != nil && ctx.Err() == nil {
 			d.Logf("job %s: file watching is off, the interval still applies: %v", j.Name, err)
 		}
 	}()
+}
+
+// handleBatch uploads one burst of changes, or asks for a full pass when it
+// cannot do that safely.
+func (d *Daemon) handleBatch(ctx context.Context, j config.Job, ix *delta.Index, b watch.Batch) {
+	if ix == nil || d.Apply == nil {
+		d.SyncNow(j.Name)
+		return
+	}
+	ops := ix.Update(b.Paths, b.Overflow)
+	if ops.Empty() {
+		return
+	}
+	if ops.Rescan {
+		d.SyncNow(j.Name)
+		return
+	}
+
+	d.gate.RLock()
+	defer d.gate.RUnlock()
+	d.jobMu[j.Name].Lock()
+	defer d.jobMu[j.Name].Unlock()
+	if ctx.Err() != nil {
+		return
+	}
+
+	d.mu.Lock()
+	prev := d.state[j.Name]
+	d.mu.Unlock()
+	d.emit(Event{Job: j.Name, State: StateUploading, Message: summary(ops)})
+	err := d.Apply(ctx, j.Name, ops)
+	switch {
+	case ctx.Err() != nil:
+		return
+	case err != nil:
+		// Whatever it was (a full pass was asked for, the network, a pause), a
+		// normal pass reports it properly, so hand over to one.
+		d.Logf("job %s: uploading %s file by file did not work (%v); running a full pass", j.Name, summary(ops), err)
+		d.emit(prev)
+		d.SyncNow(j.Name)
+	case prev.State == StateFailed || prev.State == StatePaused:
+		d.emit(prev) // a good upload does not clear an earlier failure
+	default:
+		d.emit(Event{Job: j.Name, State: StateSynced, Message: "uploaded " + summary(ops)})
+	}
+}
+
+func summary(o delta.Ops) string {
+	n := len(o.Uploads) + len(o.Moves) + o.Deletes
+	if n == 0 {
+		n = len(o.Mkdirs)
+	}
+	if n == 1 {
+		return "1 change"
+	}
+	return fmt.Sprintf("%d changes", n)
 }
 
 // activeState is what a running pass of this role is doing.
@@ -206,6 +336,14 @@ func activeState(role string) State {
 func (d *Daemon) pass(parent context.Context, j config.Job) {
 	d.gate.RLock()
 	defer d.gate.RUnlock()
+	d.jobMu[j.Name].Lock()
+	defer d.jobMu[j.Name].Unlock()
+	// A pass that can upload keeps the machine from shutting down; a pull
+	// only downloads, and losing it costs nothing.
+	if j.Role != config.RolePull {
+		d.change(func() { d.running++ })
+		defer d.change(func() { d.running-- })
+	}
 	ctx, cancel := context.WithCancel(parent)
 	d.mu.Lock()
 	d.cancel[j.Name] = cancel

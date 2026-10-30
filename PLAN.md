@@ -185,6 +185,8 @@ docs/               setup guides
   explicit "filters changed, resync needed" pause or a guarded automatic
   resync. `push` jobs are not affected.
 
-- **Daemon as a service.** The daemon runs in the foreground and logs to
-  stderr. Wrapping it (Windows service, systemd user unit) and writing its log
-  to a file belongs with the packaging milestones.
+- **Daemon as a service.** Linux is done: `packaging/linux/` has a systemd user
+  unit (waits for boot via `systemctl is-system-running --wait`, logs to the
+  journal) and `install.sh`. Still to do: the Windows service wrapper (delayed
+  start, log to a file), plus the Plasma widget and optional tray from
+  milestone 4. The unit has not been run on a real systemd host yet.

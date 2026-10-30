@@ -1,0 +1,24 @@
+[Unit]
+Description=FoxCloud sync daemon
+Documentation=https://github.com/WentTheFox/FoxCloud
+# The sync passes need the network and, for the first pass, a settled system.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+# Hold until boot has finished (blocks, no polling). The leading "-" ignores
+# the exit code: a "degraded" system has still finished booting. The extra
+# delay before the first pass is [daemon] startup_delay in the config.
+ExecStartPre=-/usr/bin/systemctl --system is-system-running --wait
+# Optional file with FOXCLOUD_CONFIG=/path/to/config.toml
+EnvironmentFile=-%E/foxcloud/env
+ExecStart=%h/.local/bin/foxcloudd
+Restart=on-failure
+RestartSec=30
+# Be nice to the desktop while syncing.
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

@@ -168,14 +168,15 @@ docs/               setup guides
   - Show "update available" and "restarting to update" in the tray, and keep
     the previous binary so a failed update can roll back.
 
-- **A "daemon not running" icon.** The old tray shows a distinct amber warning
-  icon, a "service not running" line, and disables its actions when nothing is
-  listening. FoxCloud needs the same, but it is a client-side state: the daemon
-  cannot report that it is gone. A client learns it from the event stream
-  closing (see `daemon.Watch`, which returns `ErrNotRunning`), so no polling is
-  needed to notice. Reconnecting without polling can watch the socket's
-  directory for the socket file to reappear. This is a state beyond the seven
-  status icons and needs its own amber icon in both palettes.
+- **Daemon-not-running state in the clients.** The amber `offline` icon exists
+  in both palettes (`assets/status/*/offline.svg`). The state is client-side:
+  the daemon cannot report that it is gone. A client learns it from the event
+  stream closing (see `daemon.Watch`, which returns `ErrNotRunning`), so no
+  polling is needed to notice. Still to do, with the tray and widget: show the
+  icon plus a "service not running" line, disable the actions, and reconnect
+  without polling by watching the socket's directory for the socket file to
+  reappear (needs a file-watch dependency such as fsnotify; the daemon's own
+  `watch` trigger will need the same).
 
 - **Bisync and a changed filter file.** rclone stores a checksum of the filter
   file and demands a full `--resync` when it changes. The engine classifies

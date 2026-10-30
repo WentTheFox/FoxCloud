@@ -42,6 +42,9 @@ func Env(c *config.Config, password, salt string) []string {
 	if c.Remote.KeyFile != "" {
 		e = append(e, env(sftpName, "KEY_FILE", c.Remote.KeyFile))
 	}
+	if c.Remote.KnownHostsFile != "" {
+		e = append(e, env(sftpName, "KNOWN_HOSTS_FILE", c.Remote.KnownHostsFile))
+	}
 	if salt != "" {
 		e = append(e, env(cryptName, "PASSWORD2", salt))
 	}

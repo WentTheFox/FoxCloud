@@ -110,6 +110,15 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 	return &SyncError{f}
 }
 
+// Usage reports how full the remote storage is.
+func (e *Engine) Usage(ctx context.Context) (rclone.Usage, error) {
+	env, err := e.remoteEnv(ctx)
+	if err != nil {
+		return rclone.Usage{}, err
+	}
+	return rclone.About(ctx, e.Rclone, env)
+}
+
 // Resume clears a job's pause so syncing can continue.
 func (e *Engine) Resume(name string) error {
 	st, err := e.Store.Load(name)
@@ -140,5 +149,11 @@ func (e *Engine) remoteEnv(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return rclone.Env(e.Cfg, obsPw, obsSalt), nil
+	remote, err := e.resolveRemote(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg := *e.Cfg
+	cfg.Remote = remote
+	return rclone.Env(&cfg, obsPw, obsSalt), nil
 }

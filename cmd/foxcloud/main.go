@@ -25,6 +25,7 @@ const usage = `usage: foxcloud [-config path] <command> [args]
 commands:
   run [-dry-run] [-force] <job>   run one sync pass
   status [job]                    show last success, failures and pauses
+  usage                           show how full the remote storage is
   resume <job>                    clear a pause after fixing the cause
   secret generate                 create the crypt master key in the OS keyring
   secret show [name]              print a secret, to back it up offline
@@ -88,6 +89,8 @@ func run() error {
 		return e.Run(ctx, fs.Arg(0), engine.RunOptions{DryRun: *dry, Force: *force})
 	case "status":
 		return status(e, args)
+	case "usage":
+		return showUsage(ctx, e)
 	case "resume":
 		if len(args) != 1 {
 			return errors.New("resume needs exactly one job name")
@@ -162,6 +165,36 @@ func status(e *engine.Engine, args []string) error {
 		}
 	}
 	return nil
+}
+
+// warnPercent is the fill level at which usage starts warning.
+const warnPercent = 90
+
+func showUsage(ctx context.Context, e *engine.Engine) error {
+	u, err := e.Usage(ctx)
+	if err != nil {
+		return err
+	}
+	pct := u.UsedPercent()
+	fmt.Printf("Storage: %s of %s used (%.1f%%), %s free\n",
+		formatBytes(u.Used), formatBytes(u.Total), pct, formatBytes(u.Free))
+	if pct >= warnPercent {
+		fmt.Printf("WARNING: the storage is %.0f%% full; uploads will start failing when it fills up.\n", pct)
+	}
+	return nil
+}
+
+func formatBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 func formatTime(t time.Time) string {

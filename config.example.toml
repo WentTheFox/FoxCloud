@@ -1,13 +1,20 @@
 # FoxCloud config (draft schema, subject to change while the engine is built).
 
 [remote]
-# SFTP host holding the encrypted data. Hetzner Storage Boxes use port 23.
-host = "uXXXXXX.your-storagebox.de"
-port = 23
-user = "uXXXXXX"
-key_file = "~/.ssh/foxcloud_ed25519"
-# Pinned SSH host key fingerprint (verified by `foxcloud init`).
-host_key = "SHA256:..."
+# Preferred: name a Host entry from ~/.ssh/config. Host, port, user and key are
+# read from it (via `ssh -G`), so credentials stay out of this file.
+ssh_host = "foxbox"
+#
+# Alternative without an SSH config entry (Hetzner Storage Boxes use port 23).
+# Anything set here overrides what the SSH config entry says.
+# host = "uXXXXXX.your-storagebox.de"
+# port = 23
+# user = "uXXXXXX"
+# key_file = "~/.ssh/foxcloud_ed25519"
+#
+# Verifies the server's host key. Defaults to the SSH config's known_hosts,
+# else ~/.ssh/known_hosts. Connect once with ssh to record the key.
+# known_hosts_file = "~/.ssh/known_hosts"
 path = "/foxcloud"
 
 [crypt]

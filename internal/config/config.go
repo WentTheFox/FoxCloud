@@ -28,13 +28,19 @@ type Config struct {
 	Jobs   []Job  `toml:"job"`
 }
 
+// Remote describes the SFTP server. Either set SSHHost to a Host entry from
+// ~/.ssh/config (resolved with `ssh -G`), or set Host and User directly.
+// Fields set explicitly override what the SSH config says.
 type Remote struct {
+	SSHHost string `toml:"ssh_host"`
 	Host    string `toml:"host"`
 	Port    int    `toml:"port"`
 	User    string `toml:"user"`
 	KeyFile string `toml:"key_file"`
-	HostKey string `toml:"host_key"`
-	Path    string `toml:"path"`
+	// KnownHostsFile verifies the server's host key. Defaults to the SSH
+	// config's UserKnownHostsFile, else ~/.ssh/known_hosts.
+	KnownHostsFile string `toml:"known_hosts_file"`
+	Path           string `toml:"path"`
 }
 
 type Crypt struct {
@@ -108,10 +114,8 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) normalise(baseDir string) {
-	if c.Remote.Port == 0 {
-		c.Remote.Port = 22
-	}
 	c.Remote.KeyFile = ExpandHome(c.Remote.KeyFile)
+	c.Remote.KnownHostsFile = ExpandHome(c.Remote.KnownHostsFile)
 	for i := range c.Jobs {
 		j := &c.Jobs[i]
 		j.LocalPath = ExpandHome(j.LocalPath)
@@ -134,8 +138,8 @@ func (c *Config) normalise(baseDir string) {
 
 // Validate checks the config for mistakes that would otherwise surface mid-sync.
 func (c *Config) Validate() error {
-	if c.Remote.Host == "" || c.Remote.User == "" {
-		return fmt.Errorf("[remote] needs host and user")
+	if c.Remote.SSHHost == "" && (c.Remote.Host == "" || c.Remote.User == "") {
+		return fmt.Errorf("[remote] needs ssh_host, or both host and user")
 	}
 	if len(c.Jobs) == 0 {
 		return fmt.Errorf("no [[job]] defined")

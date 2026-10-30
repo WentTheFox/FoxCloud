@@ -2,9 +2,12 @@ package rclone
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // maxCaptured bounds how much output is kept for failure classification;
@@ -19,6 +22,19 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 		t.b = t.b[len(t.b)-maxCaptured:]
 	}
 	return len(p), nil
+}
+
+// Output runs rclone and returns its stdout alone, for commands whose output
+// is parsed. Stderr is returned in the error on failure.
+func Output(ctx context.Context, bin string, args, env []string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.Output()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return out, fmt.Errorf("rclone %s: %w: %s", args[0], err, strings.TrimSpace(string(ee.Stderr)))
+	}
+	return out, err
 }
 
 // Run executes rclone, streaming its output to out while keeping the tail of

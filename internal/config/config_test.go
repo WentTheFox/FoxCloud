@@ -24,9 +24,6 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	j := c.Jobs[0]
-	if c.Remote.Port != 22 {
-		t.Errorf("port = %d, want 22", c.Remote.Port)
-	}
 	if j.MaxDelete != DefaultMaxDelete {
 		t.Errorf("max_delete = %d, want %d", j.MaxDelete, DefaultMaxDelete)
 	}
@@ -35,6 +32,13 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if !filepath.IsAbs(j.FilterFile) {
 		t.Errorf("filter_file %q should be resolved next to the config", j.FilterFile)
+	}
+}
+
+func TestRemoteAcceptsSSHHostAlone(t *testing.T) {
+	body := "[remote]\nssh_host = \"foxbox\"\n[[job]]\nname=\"a\"\nrole=\"pull\"\nlocal_path=\"/x\"\n"
+	if _, err := Load(write(t, body)); err != nil {
+		t.Fatal(err)
 	}
 }
 

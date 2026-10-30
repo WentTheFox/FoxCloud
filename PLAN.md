@@ -122,6 +122,31 @@ docs/               setup guides
   (a pull job with a filter file does this today), an unmount on `stop`, and
   the required-mount check for jobs that sit on the mount.
 
+- **TODO: smarter handling of mixed-case name collisions.** Seen with the old
+  Proton Drive setup: files whose names differ only by letter case (`Notes.txt`
+  and `notes.txt`) are fine on a case-sensitive side (Linux, the crypt remote)
+  but cannot exist side by side on a case-insensitive one (Windows, default
+  macOS), so a sync between platforms stalls and can be left in a state that
+  needs hand repair. Today the classifier only pauses with "rename one, then
+  resume" (`case-clash`). Ideas to work through:
+  - A pre-flight scan before a pass (and `foxcloud check-case <job>`, like
+    `check-names`): list case-only collisions on the local side, and on the
+    remote with a `lsf` listing, before rclone trips over them. Needs the
+    platform's case rules, since the clash only matters where the local
+    filesystem folds case.
+  - An explicit conflict policy per job instead of a hard stop: keep the newest
+    under its name and rename the other to `name (case conflict <short id>).ext`
+    on the side that allows it, never delete either, log exactly what moved.
+    Renaming on the remote is a real rename, so bisync sees it as one change
+    rather than a delete plus a create.
+  - A recoverable pause: after the fix, `resume` should continue from the last
+    good baseline, not force a full `--resync` (which the bisync filter-change
+    path does today); only fall back to a resync when rclone insists.
+  - `push` is safe by construction (the source is the truth); the risk is
+    `bisync` and `pull` on Windows/macOS, so start there.
+  - Check how rclone's bisync `--case-insensitive` / `--ignore-case-sync`
+    options and its own handling behave first; they may cover part of this.
+
 - **File watching (done for `push`).** `watch = true` syncs 30 s after changes
   stop, using OS file notifications (fsnotify), one watch per folder. On Linux
   the inotify limit (`fs.inotify.max_user_watches`) may be too low for a very

@@ -27,6 +27,8 @@ commands:
   status [job]                    show last success, failures and pauses
   usage                           show how full the remote storage is
   check-names <job>               list names too long to upload once encrypted
+  verify [-n 25] [-max-size 200M] <job>
+                                  download a random sample, decrypt it and compare with the originals
   resume <job>                    clear a pause after fixing the cause
   secret generate                 create the crypt master key in the OS keyring
   secret show [name]              print a secret, to back it up offline
@@ -92,6 +94,20 @@ func run() error {
 		return status(e, args)
 	case "usage":
 		return showUsage(ctx, e)
+	case "verify":
+		fs := flag.NewFlagSet("verify", flag.ExitOnError)
+		n := fs.Int("n", 25, "how many random files to download and compare")
+		maxSize := fs.String("max-size", "200M", "skip files larger than this when sampling (empty for no limit)")
+		fs.Parse(args)
+		if fs.NArg() != 1 {
+			return errors.New("verify needs exactly one job name")
+		}
+		res, err := e.Verify(ctx, fs.Arg(0), *n, *maxSize)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Verified %d of %d eligible files: each was downloaded, decrypted and matched its original byte for byte.\n", res.Sampled, res.Candidates)
+		return nil
 	case "check-names":
 		if len(args) != 1 {
 			return errors.New("check-names needs exactly one job name")

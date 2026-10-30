@@ -17,6 +17,7 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
 	"github.com/WentTheFox/FoxCloud/internal/secret"
+	"github.com/WentTheFox/FoxCloud/internal/version"
 )
 
 const usage = `usage: foxcloud [-config path] <command> [args]
@@ -31,6 +32,7 @@ commands:
   resume <job>                    clear a pause after fixing the cause
   sync-now <job>                  ask the running daemon to sync a job now
   stop <job>                      ask the daemon to cancel a job's running pass
+  version                         print the build version
   watch                           follow what the daemon's jobs are doing
   secret generate                 create the crypt master key in the OS keyring
   secret show [name]              print a secret, to back it up offline
@@ -53,6 +55,10 @@ func run() error {
 		return errors.New("no command given")
 	}
 
+	if flag.Arg(0) == "version" {
+		fmt.Println(version.Version)
+		return nil
+	}
 	if flag.Arg(0) == "secret" {
 		return secretCmd(flag.Args()[1:])
 	}

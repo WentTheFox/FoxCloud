@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  CGO_ENABLED: '0'
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+
+  build:
+    needs: test
+    runs-on: windows-latest   # Windows binaries are signed here; Go cross-compiles the rest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $v = '${{ github.ref_name }}'
+          $ldflags = "-s -w -X github.com/WentTheFox/FoxCloud/internal/version.Version=$v"
+          $targets = @(
+            @{ os = 'windows'; arch = 'amd64' }, @{ os = 'windows'; arch = 'arm64' },
+            @{ os = 'linux';   arch = 'amd64' }, @{ os = 'linux';   arch = 'arm64' },
+            @{ os = 'darwin';  arch = 'arm64' }   # Intel Macs are out
+          )
+          foreach ($t in $targets) {
+            $env:GOOS = $t.os; $env:GOARCH = $t.arch
+            $name = "foxcloud-$v-$($t.os)-$($t.arch)"
+            $out = "dist/$name"
+            New-Item -ItemType Directory -Force $out | Out-Null
+            $ext = if ($t.os -eq 'windows') { '.exe' } else { '' }
+            $daemonFlags = if ($t.os -eq 'windows') { "$ldflags -H=windowsgui" } else { $ldflags }
+            go build -trimpath -ldflags $ldflags -o "$out/foxcloud$ext" ./cmd/foxcloud
+            go build -trimpath -ldflags $daemonFlags -o "$out/foxcloudd$ext" ./cmd/foxcloudd
+            Copy-Item README.md, config.example.toml $out
+            if ($t.os -eq 'windows') {
+              Copy-Item packaging/windows/install.ps1, packaging/windows/foxcloud-codesign.cer $out
+            } elseif ($t.os -eq 'linux') {
+              Copy-Item packaging/linux/foxcloudd.service, packaging/linux/install.sh $out
+            }
+          }
+
+      # Self-signed on purpose: the certificate is not trusted by Windows, so
+      # SmartScreen still warns, but the signature proves the files came from
+      # this project's key. Nothing else (macOS, checksums) is signed.
+      - name: Sign Windows binaries
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
+          try {
+            $pw = ConvertTo-SecureString $env:PFX_PASSWORD -AsPlainText -Force
+            $cert = Get-PfxCertificate -FilePath $pfx -Password $pw
+            Get-ChildItem dist -Recurse -Filter *.exe | ForEach-Object {
+              $r = Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert `
+                -HashAlgorithm SHA256 -TimestampServer http://timestamp.digicert.com
+              if (-not $r.SignerCertificate) { throw "signing failed for $($_.Name): $($r.StatusMessage)" }
+              Write-Host "signed $($_.Name)"
+            }
+          } finally { Remove-Item -Force $pfx }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Set-Location dist
+          foreach ($d in Get-ChildItem -Directory) {
+            if ($d.Name -like '*-windows-*') { Compress-Archive -Path $d.FullName -DestinationPath "$($d.Name).zip" }
+            else { tar -czf "$($d.Name).tar.gz" $d.Name }
+          }
+          Get-ChildItem *.zip, *.tar.gz | ForEach-Object {
+            "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content -Encoding ascii checksums.txt
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ github.ref_name }}' --generate-notes `
+            (Get-ChildItem dist/*.zip, dist/*.tar.gz, dist/checksums.txt).FullName

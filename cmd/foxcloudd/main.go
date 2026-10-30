@@ -16,6 +16,7 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
 	"github.com/WentTheFox/FoxCloud/internal/rclone"
+	"github.com/WentTheFox/FoxCloud/internal/version"
 )
 
 func main() {
@@ -28,7 +29,12 @@ func main() {
 func run() error {
 	configPath := flag.String("config", "", "config file (default: $FOXCLOUD_CONFIG, else user config dir)")
 	logFile := flag.String("logfile", "", "append the log to this file instead of stderr (rotated at 5 MiB)")
+	showVersion := flag.Bool("version", false, "print the build version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version.Version)
+		return nil
+	}
 
 	logw := io.Writer(os.Stderr)
 	if *logFile != "" {

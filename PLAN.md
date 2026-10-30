@@ -130,34 +130,24 @@ docs/               setup guides
     kept to a short, bounded window.
   - `sync-now` and a manual resume skip the hold.
 
-- **CI builds for every platform.** A GitHub Actions workflow that vets, tests
-  and builds `foxcloud` and `foxcloudd` for:
-
-  | OS      | amd64 | arm64 |
-  |---------|-------|-------|
-  | Windows | yes   | yes   |
-  | Linux   | yes   | yes   |
-  | macOS   | no    | yes   |
-
-  macOS gets arm64 only (Intel Macs are out). Notes:
-  - Build with `CGO_ENABLED=0`: the keyring library is pure Go on all three
-    systems (dbus on Linux, the system API on Windows, the `security` tool on
-    macOS), so plain cross-compilation works from one runner.
-  - Run the tests natively on each OS (the unix-socket and mount-check code
-    differs per platform), not only on Linux.
-  - Stamp the version into the binaries with `-ldflags`, build on tags, publish
-    archives plus a checksums file as a GitHub release.
-  - Open: Windows Authenticode signing and macOS notarisation both need paid
-    certificates or an Apple developer account. Unsigned binaries trigger
-    SmartScreen and Gatekeeper warnings, so decide whether to pay for that
-    before the first public release.
-  - The packaging milestones (service, systemd units, tray, widget, installers)
-    plug into the same release job later.
+- **CI builds.** Written (`.github/workflows/ci.yml` tests on all three OSes;
+  `release.yml` builds on a `v*` tag): `foxcloud` and `foxcloudd` for
+  Windows amd64/arm64, Linux amd64/arm64 and macOS arm64, archives plus a
+  `checksums.txt` as a GitHub release. Decision: Windows binaries are
+  self-signed in CI with a certificate whose key is in the repo secrets
+  `WINDOWS_SIGN_PFX_BASE64` and `WINDOWS_SIGN_PFX_PASSWORD` (offline copy in
+  `D:\Backups\foxcloud\signing`, public certificate in
+  `packaging/windows/`). Nothing else is signed, no macOS notarisation, so
+  SmartScreen and Gatekeeper will still warn. Not yet run on GitHub. Later:
+  the packaging milestones plug into the same release job.
 
 - **Automatic updates.** The daemon holds access to the encryption key, so
   updates are a high-trust path and need care:
-  - Releases are signed, and the public key is built into the binary. An update
-    is installed only if the signature and checksum verify.
+  - Only the Windows binaries are signed (self-signed, see CI builds) and
+    there is no detached release signature, so an update is verified by the
+    checksum from the release over HTTPS and, on Windows, the Authenticode
+    signature against the certificate built into the binary. This is a weaker
+    chain than a signed release; revisit before turning updates on.
   - Never swap the binary in the middle of a sync pass. Wait for the job to go
     idle, then restart. Windows cannot overwrite a running executable, so it
     needs a rename-and-restart step or a small helper.

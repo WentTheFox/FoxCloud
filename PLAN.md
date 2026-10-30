@@ -192,7 +192,20 @@ docs/               setup guides
   Autostart: a Run-key entry on Windows, an XDG autostart file on Linux. Open:
   a "restarting to update" state, tray in the release
   archives' updater (`foxcloud update` still swaps only `foxcloud` and
-  `foxcloudd`), and the Plasma widget.
+  `foxcloudd`).
+
+- **Plasma 6 widget (written, never loaded into a real Plasma).**
+  `packaging/linux/plasmoid/tf.went.foxcloud`, ported from the old repo's
+  plasmoid and installed by `install.sh` with `kpackagetool6`. QML cannot open
+  a unix socket, so it uses the old widget's event-driven trick: it runs
+  `foxcloud status-json -wait REV` through the executable data engine; that
+  command blocks inside foxcloud (on the daemon's event stream, or on the
+  socket file appearing) until the state differs from REV, prints the new JSON
+  and exits, and the widget re-arms it with the new revision. No timer; the
+  only one is a 30 s retry when the `foxcloud` command itself cannot run. Shows
+  the same summary icon as the tray, a card per job with Sync now / Stop, the
+  offline state and the update notice. It was written without a Plasma
+  session to test in, so expect small QML fixes on first load.
 
 - **Daemon as a service.** Linux is done: `packaging/linux/` has a systemd user
   unit (waits for boot via `systemctl is-system-running --wait`, logs to the
@@ -200,4 +213,4 @@ docs/               setup guides
   service (`packaging/windows/install.ps1`): the crypt key sits in the user's
   credential store, which a service account cannot read. The daemon takes
   `-logfile` (rotated at 5 MiB). Neither wrapper has been run for real yet.
-  Still to do: the Plasma widget from milestone 4.
+  Linux packaging now has the unit, the tray autostart and the widget.

@@ -61,6 +61,9 @@ jobs:
               Copy-Item packaging/windows/install.ps1, packaging/windows/foxcloud-codesign.cer $out
             } elseif ($t.os -eq 'linux') {
               Copy-Item packaging/linux/foxcloudd.service, packaging/linux/foxcloud-tray.desktop, packaging/linux/install.sh $out
+              Copy-Item packaging/linux/plasmoid "$out/plasmoid" -Recurse
+              New-Item -ItemType Directory "$out/plasmoid/icons" | Out-Null
+              Copy-Item internal/tray/icons/*.png "$out/plasmoid/icons"
             }
           }
 

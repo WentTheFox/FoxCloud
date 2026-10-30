@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -35,6 +36,7 @@ commands:
   sync-now <job>                  ask the running daemon to sync a job now
   stop <job>                      ask the daemon to cancel a job's running pass
   update [-check]                 install the newest release (-check only looks)
+  status-json [-wait REV]         the daemon's state as JSON; with -wait, block until it differs from REV
   version                         print the build version
   watch                           follow what the daemon's jobs are doing
   secret generate                 create the crypt master key in the OS keyring
@@ -58,6 +60,9 @@ func run() error {
 		return errors.New("no command given")
 	}
 
+	if flag.Arg(0) == "status-json" {
+		return statusJSONCmd(flag.Args()[1:])
+	}
 	if flag.Arg(0) == "update" {
 		return updateCmd(flag.Args()[1:])
 	}
@@ -349,4 +354,32 @@ func updateCmd(args []string) error {
 	fmt.Printf("installed %s in %s; the previous files are kept as *.old\n", r.Tag, filepath.Dir(exe))
 	fmt.Println("restart the daemon to run it (Linux: systemctl --user restart foxcloudd; Windows: Stop-ScheduledTask / Start-ScheduledTask \"FoxCloud daemon\")")
 	return nil
+}
+
+// statusJSONCmd prints the daemon's state as one JSON document. The Plasma
+// widget runs it in a loop: each run with -wait blocks (no polling) until the
+// state differs from the revision the widget last showed.
+func statusJSONCmd(args []string) error {
+	fs := flag.NewFlagSet("status-json", flag.ContinueOnError)
+	wait := fs.String("wait", "", "block until the state differs from this revision")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	sock, err := daemon.SocketPath()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	var v daemon.View
+	if *wait != "" {
+		v, err = daemon.WaitView(ctx, sock, *wait)
+	} else {
+		v, err = daemon.CurrentView(sock)
+	}
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(v)
 }

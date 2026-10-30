@@ -1,0 +1,21 @@
+{
+    "KPlugin": {
+        "Id": "tf.went.foxcloud",
+        "Name": "FoxCloud",
+        "Description": "Sync status for FoxCloud: what each job is doing, failures, mounts and updates",
+        "Icon": "folder-cloud",
+        "Authors": [
+            {
+                "Name": "WentTheFox",
+                "Email": "mail@went.tf"
+            }
+        ],
+        "Category": "System Information",
+        "License": "MIT",
+        "Version": "1.0"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-NotificationArea": "true",
+    "X-Plasma-NotificationAreaCategory": "SystemServices"
+}

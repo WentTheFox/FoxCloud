@@ -138,6 +138,17 @@ func Do(path string, req Request) (Response, error) {
 // away. Losing the connection returns ErrNotRunning: that closed connection is
 // how a client learns the daemon is gone, with no polling.
 func Watch(ctx context.Context, path string, fn func(Event)) error {
+	return WatchSnapshot(ctx, path, func(evs []Event) {
+		for _, ev := range evs {
+			fn(ev)
+		}
+	}, fn)
+}
+
+// WatchSnapshot is Watch with the starting state handed over whole, so a
+// client can tell it apart from later changes and never act on a half-built
+// picture.
+func WatchSnapshot(ctx context.Context, path string, snapshot func([]Event), change func(Event)) error {
 	c, err := dial(path)
 	if err != nil {
 		return err
@@ -155,9 +166,7 @@ func Watch(ctx context.Context, path string, fn func(Event)) error {
 	if err := dec.Decode(&first); err != nil {
 		return ErrNotRunning
 	}
-	for _, ev := range first.Events {
-		fn(ev)
-	}
+	snapshot(first.Events)
 	for {
 		var ev Event
 		if err := dec.Decode(&ev); err != nil {
@@ -166,6 +175,6 @@ func Watch(ctx context.Context, path string, fn func(Event)) error {
 			}
 			return ErrNotRunning
 		}
-		fn(ev)
+		change(ev)
 	}
 }

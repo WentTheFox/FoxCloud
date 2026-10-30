@@ -63,8 +63,8 @@ func TestUpdateNoticeIsKeptApartFromJobs(t *testing.T) {
 	if !strings.Contains(m.Tooltip(), "Update available: v1.2.3") {
 		t.Errorf("tooltip = %q", m.Tooltip())
 	}
-	if !strings.Contains(UpdateLine("v1.2.3"), "foxcloud update") {
-		t.Error("the menu line should say how to update")
+	if !strings.Contains(m.UpdateText(), "click to install") {
+		t.Errorf("update text = %q, should invite a click", m.UpdateText())
 	}
 }
 
@@ -85,5 +85,26 @@ func TestMountedShowsAsSynced(t *testing.T) {
 	m.Apply(ev("cloud", daemon.StateMounted))
 	if m.Icon() != IconSynced {
 		t.Errorf("icon = %s, want %s", m.Icon(), IconSynced)
+	}
+}
+
+func TestInstallProgressReplacesTheUpdateLine(t *testing.T) {
+	m := NewModel()
+	if m.UpdateText() != "" {
+		t.Error("no update, no line")
+	}
+	m.Apply(daemon.Event{Update: "v1.2.3"})
+
+	m.SetInstall(InstallRunning, "")
+	if !m.Installing() || !strings.Contains(m.UpdateText(), "Installing v1.2.3") {
+		t.Errorf("running: %q (installing %v)", m.UpdateText(), m.Installing())
+	}
+	m.SetInstall(InstallFailed, "job \"a\" is syncing")
+	if m.Installing() || !strings.Contains(m.UpdateText(), "is syncing") || !strings.Contains(m.UpdateText(), "retry") {
+		t.Errorf("failed: %q", m.UpdateText())
+	}
+	m.SetInstall(InstallDone, "v1.2.3")
+	if got := m.UpdateText(); !strings.Contains(got, "Installed v1.2.3") || !strings.Contains(got, "restart") {
+		t.Errorf("done: %q", got)
 	}
 }

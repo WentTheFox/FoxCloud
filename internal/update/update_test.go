@@ -166,3 +166,43 @@ func TestLatestParsesRelease(t *testing.T) {
 		t.Errorf("Latest() = %+v, %v", r, err)
 	}
 }
+
+func TestOptionalTrayIsInstalledWhenPresent(t *testing.T) {
+	arc := archiveBytes(t, "v1.0.0", map[string]string{
+		exeName("foxcloud"): "new-cli", exeName("foxcloudd"): "new-daemon", exeName("foxcloud-tray"): "new-tray",
+	})
+	archive := filepath.Join(t.TempDir(), Release{Tag: "v1.0.0"}.Archive())
+	os.WriteFile(archive, arc, 0o644)
+	files, err := Extract(archive, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, exeName("foxcloud-tray")), []byte("old-tray"), 0o755)
+	if err := Install(dir, files); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, exeName("foxcloud-tray")))
+	old, _ := os.ReadFile(filepath.Join(dir, exeName("foxcloud-tray")+".old"))
+	if string(got) != "new-tray" || string(old) != "old-tray" {
+		t.Errorf("tray = %q (old %q)", got, old)
+	}
+}
+
+func TestMissingOptionalTrayIsFine(t *testing.T) {
+	arc := archiveBytes(t, "v1.0.0", map[string]string{exeName("foxcloud"): "a", exeName("foxcloudd"): "b"})
+	archive := filepath.Join(t.TempDir(), Release{Tag: "v1.0.0"}.Archive())
+	os.WriteFile(archive, arc, 0o644)
+	files, err := Extract(archive, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, exeName("foxcloud-tray")), []byte("keep"), 0o755)
+	if err := Install(dir, files); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, exeName("foxcloud-tray"))); string(got) != "keep" {
+		t.Errorf("a release without a tray must leave the installed one alone, got %q", got)
+	}
+}

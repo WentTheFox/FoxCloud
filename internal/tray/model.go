@@ -28,10 +28,23 @@ const (
 	IconOffline Icon = "offline"
 )
 
+// InstallState is where installing an update from the menu has got to.
+type InstallState int
+
+const (
+	InstallIdle InstallState = iota
+	InstallRunning
+	InstallDone
+	InstallFailed
+)
+
 // Model is everything the tray shows, rebuilt from the daemon's events.
 type Model struct {
 	jobs   map[string]daemon.Event
 	update string
+	// install is the progress of an install started from the menu.
+	install    InstallState
+	installMsg string
 	// Offline is set while no daemon is listening.
 	Offline bool
 }
@@ -54,6 +67,32 @@ func (m *Model) Apply(ev daemon.Event) {
 func (m *Model) SetOffline() {
 	m.Offline = true
 	m.jobs = map[string]daemon.Event{}
+}
+
+// SetInstall records the progress of installing an update from the menu. msg
+// is the outcome's detail: the new version, or why it failed.
+func (m *Model) SetInstall(st InstallState, msg string) {
+	m.install, m.installMsg = st, msg
+}
+
+// Installing reports whether an install is under way.
+func (m *Model) Installing() bool { return m.install == InstallRunning }
+
+// UpdateText is the menu line for the update item; empty when there is
+// nothing to say. An outcome stays until the next one replaces it.
+func (m *Model) UpdateText() string {
+	switch m.install {
+	case InstallRunning:
+		return "Installing " + m.update + "…"
+	case InstallDone:
+		return "Installed " + m.installMsg + ": restart the FoxCloud service to run it"
+	case InstallFailed:
+		return "Update failed: " + m.installMsg + " (click to retry)"
+	}
+	if m.update == "" {
+		return ""
+	}
+	return UpdateLine(m.update) + " – click to install"
 }
 
 // Update is the newest release the daemon has found, or "".
@@ -126,8 +165,8 @@ func (m *Model) Tooltip() string {
 			fmt.Fprintf(&b, "%s%s: %s", "\n", ev.Job, describe(ev))
 		}
 	}
-	if m.update != "" {
-		fmt.Fprintf(&b, "%sUpdate available: %s", "\n", m.update)
+	if t := m.UpdateText(); t != "" {
+		fmt.Fprintf(&b, "%s%s", "\n", t)
 	}
 	return b.String()
 }
@@ -154,5 +193,5 @@ func describe(ev daemon.Event) string {
 
 // UpdateLine is the menu text for the update notice.
 func UpdateLine(tag string) string {
-	return "Update available: " + tag + " (run foxcloud update)"
+	return "Update available: " + tag
 }

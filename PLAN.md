@@ -189,10 +189,12 @@ docs/               setup guides
   follows the desktop live, event-driven: a registry change notification on
   Windows, the portal's `SettingChanged` D-Bus signal on Linux (`-theme dark|light`
   pins it; without a portal it stays dark).
-  Autostart: a Run-key entry on Windows, an XDG autostart file on Linux. Open:
-  a "restarting to update" state, tray in the release
-  archives' updater (`foxcloud update` still swaps only `foxcloud` and
-  `foxcloudd`).
+  Autostart: a Run-key entry on Windows, an XDG autostart file on Linux. Update
+  item: click it to run `foxcloud update` (checksum, signature, refuses mid-sync),
+  with "Installing…", "Installed vX: restart the service" and "Update failed:
+  <reason> (click to retry)" shown in place; `foxcloud update` now also swaps
+  `foxcloud-tray` when the release has it. Open: restarting the daemon (and the
+  tray) after an install, which is the auto-update mode below.
 
 - **Plasma 6 widget (written, never loaded into a real Plasma).**
   `packaging/linux/plasmoid/tf.went.foxcloud`, ported from the old repo's

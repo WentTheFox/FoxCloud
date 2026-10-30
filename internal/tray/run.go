@@ -5,6 +5,10 @@ package tray
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"fyne.io/systray"
@@ -70,8 +74,13 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 				it.Hide() // the daemon is gone or no longer lists it
 			}
 		}
-		if tag := model.Update(); tag != "" {
-			updItem.SetTitle(UpdateLine(tag))
+		if text := model.UpdateText(); text != "" {
+			updItem.SetTitle(text)
+			if model.Installing() {
+				updItem.Disable()
+			} else {
+				updItem.Enable()
+			}
 			updItem.Show()
 		} else {
 			updItem.Hide()
@@ -81,8 +90,7 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 	systray.Run(func() {
 		offline = systray.AddMenuItem("FoxCloud service is not running", "Start the foxcloudd service")
 		offline.Disable()
-		updItem = systray.AddMenuItem("", "A newer release is available")
-		updItem.Disable()
+		updItem = systray.AddMenuItem("", "Download, verify and install the newer release")
 		systray.AddSeparator()
 		quit := systray.AddMenuItem("Quit tray", "Close this icon; sync keeps running")
 
@@ -91,6 +99,37 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 		render()
 		mu.Unlock()
 
+		go func() {
+			for {
+				select {
+				case <-updItem.ClickedCh:
+					mu.Lock()
+					if model.Installing() || model.Update() == "" {
+						mu.Unlock()
+						continue
+					}
+					tag := model.Update()
+					model.SetInstall(InstallRunning, "")
+					render()
+					mu.Unlock()
+
+					// foxcloud update does the work: it checks the checksum and the
+					// signature, and refuses while a job is syncing.
+					out, err := runUpdate()
+					mu.Lock()
+					if err != nil {
+						model.SetInstall(InstallFailed, lastLine(out, err))
+						logf("update: %v: %s", err, out)
+					} else {
+						model.SetInstall(InstallDone, tag)
+					}
+					render()
+					mu.Unlock()
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
 		go func() {
 			select {
 			case <-quit.ClickedCh:
@@ -130,4 +169,36 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 			}
 		}()
 	}, cancel)
+}
+
+// runUpdate runs `foxcloud update`, from beside this executable when it is
+// there (the installed layout), else from the PATH.
+func runUpdate() (string, error) {
+	bin := "foxcloud"
+	if exe, err := os.Executable(); err == nil {
+		name := "foxcloud"
+		if filepath.Ext(exe) == ".exe" {
+			name += ".exe"
+		}
+		if p := filepath.Join(filepath.Dir(exe), name); fileExists(p) {
+			bin = p
+		}
+	}
+	out, err := exec.Command(bin, "update").CombinedOutput()
+	return string(out), err
+}
+
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
+}
+
+// lastLine is the last non-empty line of a command's output, which is where
+// foxcloud puts the reason; it falls back to the error itself.
+func lastLine(out string, err error) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if l := strings.TrimSpace(lines[len(lines)-1]); l != "" {
+		return l
+	}
+	return err.Error()
 }

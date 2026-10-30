@@ -194,8 +194,14 @@ func checksumFor(sums, name string) (string, error) {
 	return "", fmt.Errorf("checksums.txt has no entry for %s", name)
 }
 
-// Binaries are the executables an update replaces, without extension.
+// Binaries are the executables every release holds, without extension.
 var Binaries = []string{"foxcloud", "foxcloudd"}
+
+// Optional executables are replaced when the release has them: the tray has no
+// macOS build, and a machine without it simply keeps going without.
+var Optional = []string{"foxcloud-tray"}
+
+func allBinaries() []string { return append(append([]string{}, Binaries...), Optional...) }
 
 func exeName(b string) string {
 	if runtime.GOOS == "windows" {
@@ -204,12 +210,12 @@ func exeName(b string) string {
 	return b
 }
 
-// Extract unpacks the two executables from the archive into dir and returns
+// Extract unpacks the executables from the archive into dir and returns
 // their paths by name. Only those exact files are read from the archive, and
 // only their base names are used, so a crafted path cannot escape dir.
 func Extract(archive, dir string) (map[string]string, error) {
 	want := map[string]bool{}
-	for _, b := range Binaries {
+	for _, b := range allBinaries() {
 		want[exeName(b)] = true
 	}
 	out := map[string]string{}
@@ -296,7 +302,10 @@ func Install(dir string, files map[string]string) error {
 			os.Rename(done[i].old, done[i].cur)
 		}
 	}
-	for _, b := range Binaries {
+	for _, b := range allBinaries() {
+		if files[b] == "" {
+			continue // an optional one this release does not have
+		}
 		cur := filepath.Join(dir, exeName(b))
 		old := cur + ".old"
 		staged := cur + ".new"

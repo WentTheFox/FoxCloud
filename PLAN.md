@@ -148,23 +148,22 @@ docs/               setup guides
   SmartScreen and Gatekeeper will still warn. First release `v0.1.0` built and signed on GitHub. Later:
   the packaging milestones plug into the same release job.
 
-- **Automatic updates.** The daemon holds access to the encryption key, so
-  updates are a high-trust path and need care:
-  - Only the Windows binaries are signed (self-signed, see CI builds) and
-    there is no detached release signature, so an update is verified by the
-    checksum from the release over HTTPS and, on Windows, the Authenticode
-    signature against the certificate built into the binary. This is a weaker
-    chain than a signed release; revisit before turning updates on.
-  - Never swap the binary in the middle of a sync pass. Wait for the job to go
-    idle, then restart. Windows cannot overwrite a running executable, so it
-    needs a rename-and-restart step or a small helper.
-  - Checking for an update is a periodic network request, the one thing here
-    that is not event-driven. Keep it rare (about once a day with jitter, and
-    once at start-up after the settle hold), make it easy to turn off, and say
-    so in the docs. Where a package manager is used (winget, Homebrew, an AUR
-    package), let it do the updating instead and skip the built-in updater.
-  - Show "update available" and "restarting to update" in the tray, and keep
-    the previous binary so a failed update can roll back.
+- **Updates (notify and manual done, unattended install not).** The daemon
+  checks GitHub for a newer release once after start-up and then about daily
+  with jitter (timers, no polling), and logs "update available"; `[update]
+  check = false` turns the request off. `foxcloud update [-check]` downloads the
+  platform archive, verifies it against the release `checksums.txt` (and, on
+  Windows, that both executables carry the pinned self-signed certificate),
+  refuses while a job is syncing, swaps the binaries keeping `*.old`, and
+  tells you to restart the daemon. The trust chain is weak (no detached release
+  signature; see CI builds), which is why nothing installs on its own. Not yet
+  run against a real release. Open:
+  - An opt-in `mode = "auto"` that installs when every job is idle and then
+    restarts the daemon (the supervisors need a restart-on-exit policy first).
+  - Show "update available" / "restarting to update" in the tray and widget.
+  - A `foxcloud update --rollback` that restores the `*.old` files.
+  - Where a package manager is used (winget, Homebrew, an AUR package), let it
+    update and skip the built-in updater.
 
 - **Daemon-not-running state in the clients.** The amber `offline` icon exists
   in both palettes (`assets/status/*/offline.svg`). The state is client-side:

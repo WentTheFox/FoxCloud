@@ -26,6 +26,12 @@ encrypt_directory_names = true
 # key. Never put the key itself here.
 key_command = "keyring:crypt-key"
 
+[update]
+# Once a day (and once after start-up) the daemon asks GitHub whether a newer
+# release exists and says so in its log. It never installs anything; run
+# `foxcloud update` for that. Set to false to make no network request at all.
+check = true
+
 # One table per job. Roles: push, pull, bisync, mount.
 [[job]]
 name = "data"

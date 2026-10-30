@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
 	"github.com/WentTheFox/FoxCloud/internal/secret"
+	"github.com/WentTheFox/FoxCloud/internal/update"
 	"github.com/WentTheFox/FoxCloud/internal/version"
 )
 
@@ -32,6 +34,7 @@ commands:
   resume <job>                    clear a pause after fixing the cause
   sync-now <job>                  ask the running daemon to sync a job now
   stop <job>                      ask the daemon to cancel a job's running pass
+  update [-check]                 install the newest release (-check only looks)
   version                         print the build version
   watch                           follow what the daemon's jobs are doing
   secret generate                 create the crypt master key in the OS keyring
@@ -55,6 +58,9 @@ func run() error {
 		return errors.New("no command given")
 	}
 
+	if flag.Arg(0) == "update" {
+		return updateCmd(flag.Args()[1:])
+	}
 	if flag.Arg(0) == "version" {
 		fmt.Println(version.Version)
 		return nil
@@ -268,4 +274,75 @@ func formatTime(t time.Time) string {
 		return "never"
 	}
 	return t.Local().Format(time.DateTime)
+}
+
+// updateCmd installs the newest release over the running executables. It will
+// not do so while the daemon is mid-sync: the daemon has to be restarted
+// afterwards, and that would cut the pass short.
+func updateCmd(args []string) error {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	checkOnly := fs.Bool("check", false, "only report whether a newer release exists")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	if !update.Releasable(version.Version) {
+		return fmt.Errorf("this is a %q build, not a release, so there is nothing to compare with", version.Version)
+	}
+	r, err := update.Latest(ctx)
+	if err != nil {
+		return err
+	}
+	if !update.Newer(version.Version, r.Tag) {
+		fmt.Printf("up to date (%s)\n", version.Version)
+		return nil
+	}
+	fmt.Printf("%s is available (this is %s)\n", r.Tag, version.Version)
+	if *checkOnly {
+		return nil
+	}
+
+	if sock, err := daemon.SocketPath(); err == nil {
+		if resp, err := daemon.Do(sock, daemon.Request{Cmd: "status"}); err == nil {
+			for _, ev := range resp.Events {
+				switch ev.State {
+				case daemon.StateUploading, daemon.StateDownloading, daemon.StateSyncing:
+					return fmt.Errorf("job %q is syncing; update once it has finished", ev.Job)
+				}
+			}
+		}
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+		return err
+	}
+	tmp, err := os.MkdirTemp("", "foxcloud-update-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+
+	archive, err := update.Download(ctx, r, tmp)
+	if err != nil {
+		return err
+	}
+	files, err := update.Extract(archive, tmp)
+	if err != nil {
+		return err
+	}
+	if err := update.VerifySignatures(files); err != nil {
+		return err
+	}
+	if err := update.Install(filepath.Dir(exe), files); err != nil {
+		return err
+	}
+	fmt.Printf("installed %s in %s; the previous files are kept as *.old\n", r.Tag, filepath.Dir(exe))
+	fmt.Println("restart the daemon to run it (Linux: systemctl --user restart foxcloudd; Windows: Stop-ScheduledTask / Start-ScheduledTask \"FoxCloud daemon\")")
+	return nil
 }

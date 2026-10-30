@@ -26,6 +26,7 @@ type Config struct {
 	Remote Remote `toml:"remote"`
 	Crypt  Crypt  `toml:"crypt"`
 	Daemon Daemon `toml:"daemon"`
+	Update Update `toml:"update"`
 	Jobs   []Job  `toml:"job"`
 }
 
@@ -37,6 +38,16 @@ type Daemon struct {
 	// StartupDelay is a Go duration such as "2m"; "0" turns the hold off.
 	StartupDelay string `toml:"startup_delay"`
 }
+
+// Update controls the daemon's check for new releases. It never installs one:
+// that is `foxcloud update`.
+type Update struct {
+	// Check turns the daily check on or off; on when unset.
+	Check *bool `toml:"check"`
+}
+
+// CheckEnabled reports whether the daemon should look for new releases.
+func (u Update) CheckEnabled() bool { return u.Check == nil || *u.Check }
 
 // StartupDelayDuration returns the hold before the first pass.
 func (d Daemon) StartupDelayDuration() time.Duration {

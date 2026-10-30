@@ -11,11 +11,13 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/WentTheFox/FoxCloud/internal/app"
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
 	"github.com/WentTheFox/FoxCloud/internal/rclone"
+	"github.com/WentTheFox/FoxCloud/internal/update"
 	"github.com/WentTheFox/FoxCloud/internal/version"
 )
 
@@ -66,6 +68,13 @@ func run() error {
 
 	d.Logf = func(format string, args ...any) {
 		fmt.Fprintf(logw, "foxcloudd: "+format+"\n", args...)
+	}
+
+	if cfg.Update.CheckEnabled() && update.Releasable(version.Version) {
+		go update.Announce(runCtx, version.Version, cfg.Daemon.StartupDelayDuration()+time.Minute,
+			func(r update.Release) {
+				d.Logf("update available: %s (this is %s); run `foxcloud update` to install it", r.Tag, version.Version)
+			}, d.Logf)
 	}
 
 	// If the socket cannot be served (another daemon owns it, say), stop

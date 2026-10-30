@@ -6,14 +6,15 @@ import "regexp"
 type Kind string
 
 const (
-	KindPermissions Kind = "permissions"
-	KindAuth        Kind = "auth"
-	KindNetwork     Kind = "network"
-	KindCaseClash   Kind = "case-clash"
-	KindTooManyDel  Kind = "too-many-deletes"
-	KindNameTooLong Kind = "name-too-long"
-	KindNeedsResync Kind = "needs-resync"
-	KindUnknown     Kind = "unknown"
+	KindPermissions  Kind = "permissions"
+	KindAuth         Kind = "auth"
+	KindNetwork      Kind = "network"
+	KindCaseClash    Kind = "case-clash"
+	KindTooManyDel   Kind = "too-many-deletes"
+	KindNameTooLong  Kind = "name-too-long"
+	KindNeedsResync  Kind = "needs-resync"
+	KindFilterChange Kind = "filters-changed"
+	KindUnknown      Kind = "unknown"
 )
 
 // Failure is a classified rclone failure.
@@ -46,6 +47,9 @@ var rules = []rule{
 	// "Bad message"; this is how names of 144 bytes or more showed up in practice.
 	{regexp.MustCompile(`(?i)SSH_FX_BAD_MESSAGE|"Bad message"`),
 		Failure{KindNameTooLong, "Some file names are too long once encrypted (the limit is 143 bytes) and could not be uploaded. Run `foxcloud check-names` for the list, then shorten them or exclude them in the filter file.", false}},
+	// Must precede the generic resync rule: it prints the same "must run --resync".
+	{regexp.MustCompile(`(?i)filters file has changed`),
+		Failure{KindFilterChange, "The filter file changed since the last bisync. Bisync has to rebuild its baseline with a full resync (newer file wins), which can move files that the new filters include or exclude. Check the filter change is intended, then resume to resync.", true}},
 	{regexp.MustCompile(`(?i)must run --resync|bisync aborted|critical error`),
 		Failure{KindNeedsResync, "Bisync lost track of its previous state and needs a fresh --resync.", false}},
 }

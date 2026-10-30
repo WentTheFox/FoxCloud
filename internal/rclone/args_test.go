@@ -13,6 +13,8 @@ var now = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 func TestArgs(t *testing.T) {
 	base := config.Job{LocalPath: "/data", BackupDir: "/data.bak", MaxDelete: 5, FilterFile: "/f.txt"}
 	tail := []string{"--create-empty-src-dirs", "--stats", "1m", "-v", "--filter-from", "/f.txt"}
+	// Bisync's own filter flag lets rclone notice when the file changes.
+	bisyncTail := []string{"--create-empty-src-dirs", "--stats", "1m", "-v", "--filters-file", "/f.txt"}
 
 	tests := []struct {
 		name string
@@ -26,11 +28,11 @@ func TestArgs(t *testing.T) {
 			append([]string{"copy", "foxcrypt:", "/data", "--update", "--backup-dir", "/data.bak", "--suffix", ".20261030-120000"}, tail...)},
 		{"bisync", config.RoleBisync, Options{Now: now},
 			append([]string{"bisync", "foxcrypt:", "/data", "--resilient", "--recover", "--max-lock", "2m",
-				"--conflict-resolve", "newer", "--max-delete", "5", "--backup-dir2", "/data.bak"}, tail...)},
+				"--conflict-resolve", "newer", "--max-delete", "5", "--backup-dir2", "/data.bak"}, bisyncTail...)},
 		{"bisync resync", config.RoleBisync, Options{Now: now, Resync: true},
 			append([]string{"bisync", "foxcrypt:", "/data", "--resilient", "--recover", "--max-lock", "2m",
 				"--conflict-resolve", "newer", "--max-delete", "5", "--backup-dir2", "/data.bak",
-				"--resync", "--resync-mode", "newer"}, tail...)},
+				"--resync", "--resync-mode", "newer"}, bisyncTail...)},
 		{"push dry run force", config.RolePush, Options{Now: now, DryRun: true, Force: true},
 			append([]string{"sync", "/data", "foxcrypt:", "--max-delete", "5"}, append(tail, "--dry-run", "--force")...)},
 	}

@@ -179,12 +179,6 @@ docs/               setup guides
   reappear (needs a file-watch dependency such as fsnotify; the daemon's own
   `watch` trigger will need the same).
 
-- **Bisync and a changed filter file.** rclone stores a checksum of the filter
-  file and demands a full `--resync` when it changes. The engine classifies
-  that error but does not yet recover from it. A `bisync` job needs either an
-  explicit "filters changed, resync needed" pause or a guarded automatic
-  resync. `push` jobs are not affected.
-
 - **Daemon as a service.** Linux is done: `packaging/linux/` has a systemd user
   unit (waits for boot via `systemctl is-system-running --wait`, logs to the
   journal) and `install.sh`. Still to do: the Windows service wrapper (delayed

@@ -145,6 +145,9 @@ func (e *Engine) Resume(name string) error {
 	if err != nil {
 		return err
 	}
+	if st.Paused != nil && st.Paused.Kind == string(classify.KindFilterChange) {
+		st.Resynced = false // the next run rebuilds the baseline
+	}
 	st.Paused = nil
 	return e.Store.Save(name, st)
 }

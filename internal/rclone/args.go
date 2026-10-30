@@ -26,7 +26,13 @@ func Args(j config.Job, o Options) ([]string, error) {
 
 	common := []string{"--create-empty-src-dirs", "--stats", "1m", "-v"}
 	if j.FilterFile != "" {
-		common = append(common, "--filter-from", j.FilterFile)
+		// Bisync's own flag also records the file's checksum, so a change is
+		// noticed instead of silently making the two sides disagree.
+		flag := "--filter-from"
+		if j.Role == config.RoleBisync {
+			flag = "--filters-file"
+		}
+		common = append(common, flag, j.FilterFile)
 	}
 	if o.JSONLog {
 		common = append(common, "--use-json-log")

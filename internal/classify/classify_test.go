@@ -37,3 +37,13 @@ func TestPermissionsBeatsBisyncAbort(t *testing.T) {
 		t.Errorf("got %s, want %s", got, KindPermissions)
 	}
 }
+
+// rclone prints "must run --resync" for a changed filter file too, but that
+// needs a human decision where a lost baseline does not.
+func TestFilterChangePausesBeforeResync(t *testing.T) {
+	out := "ERROR : Bisync critical error: filters file has changed (must run --resync): f.txt\nERROR : Bisync aborted. Must run --resync to recover."
+	f := Classify(out)
+	if f.Kind != KindFilterChange || !f.Pause {
+		t.Errorf("got %s (pause %v), want %s with pause", f.Kind, f.Pause, KindFilterChange)
+	}
+}

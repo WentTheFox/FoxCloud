@@ -26,6 +26,7 @@ commands:
   run [-dry-run] [-force] <job>   run one sync pass
   status [job]                    show last success, failures and pauses
   usage                           show how full the remote storage is
+  check-names <job>               list names too long to upload once encrypted
   resume <job>                    clear a pause after fixing the cause
   secret generate                 create the crypt master key in the OS keyring
   secret show [name]              print a secret, to back it up offline
@@ -91,6 +92,22 @@ func run() error {
 		return status(e, args)
 	case "usage":
 		return showUsage(ctx, e)
+	case "check-names":
+		if len(args) != 1 {
+			return errors.New("check-names needs exactly one job name")
+		}
+		bad, err := e.CheckNames(ctx, args[0])
+		if err != nil {
+			return err
+		}
+		for _, p := range bad {
+			fmt.Println(p)
+		}
+		if len(bad) > 0 {
+			return fmt.Errorf("%d path(s) have a name too long to upload once encrypted", len(bad))
+		}
+		fmt.Println("All names fit.")
+		return nil
 	case "resume":
 		if len(args) != 1 {
 			return errors.New("resume needs exactly one job name")

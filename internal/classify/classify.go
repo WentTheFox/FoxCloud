@@ -11,6 +11,7 @@ const (
 	KindNetwork     Kind = "network"
 	KindCaseClash   Kind = "case-clash"
 	KindTooManyDel  Kind = "too-many-deletes"
+	KindNameTooLong Kind = "name-too-long"
 	KindNeedsResync Kind = "needs-resync"
 	KindUnknown     Kind = "unknown"
 )
@@ -41,6 +42,10 @@ var rules = []rule{
 		Failure{KindAuth, "Authentication with the server failed. Check the SSH key, the pinned host key and the crypt password.", false}},
 	{regexp.MustCompile(`(?i)connection refused|i/o timeout|no such host|network is unreachable|connection reset|broken pipe`),
 		Failure{KindNetwork, "The server could not be reached. This usually clears on its own.", false}},
+	// The server answers an over-long (encrypted) file name with a bare SFTP
+	// "Bad message"; this is how names of 144 bytes or more showed up in practice.
+	{regexp.MustCompile(`(?i)SSH_FX_BAD_MESSAGE|"Bad message"`),
+		Failure{KindNameTooLong, "Some file names are too long once encrypted (the limit is 143 bytes) and could not be uploaded. Run `foxcloud check-names` for the list, then shorten them or exclude them in the filter file.", false}},
 	{regexp.MustCompile(`(?i)must run --resync|bisync aborted|critical error`),
 		Failure{KindNeedsResync, "Bisync lost track of its previous state and needs a fresh --resync.", false}},
 }

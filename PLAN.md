@@ -106,3 +106,25 @@ docs/               setup guides
   server-agnostic.
 - Filenames and directory names are encrypted (143-character limit, no
   server-side browsing accepted).
+
+## Backlog
+
+- **Let the system settle after boot before the first sync.** The daemon and
+  the tray must not start a pass the instant the machine comes up: boot-time
+  disk activity (indexing, updates, other services starting) competes with an
+  immediate sync, and a sync that starts at once on a drive that is still
+  spinning up or being scanned makes both slower. Needed:
+  - A startup hold before the first run, with a minimum delay and a "system
+    still settling" condition.
+  - A visible state for it. The tray and widget should show that FoxCloud is
+    waiting on purpose, not stuck. For now it reuses the idle icon, with the
+    tooltip and `foxcloud status` saying "waiting for the system to settle"
+    and when the hold ends. A dedicated icon can come later if the two states
+    prove hard to tell apart.
+  - Event-driven where possible, not polling. Linux: have the unit wait on
+    `systemctl is-system-running --wait` (blocks until boot finishes) plus a
+    timer delay. Windows: a delayed-start service and a fixed minimum wait.
+    Detecting "disk is quiet" generally needs periodic sampling, so if that is
+    added it has to be called out as the one place polling is unavoidable and
+    kept to a short, bounded window.
+  - `sync-now` and a manual resume skip the hold.

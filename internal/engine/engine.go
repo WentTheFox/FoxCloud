@@ -84,6 +84,8 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 		return err
 	}
 
+	e.warnLongNames(ctx, job)
+
 	st.LastAttempt = e.now()
 	output, runErr := rclone.Run(ctx, e.Rclone, args, env, e.Out)
 	if opts.DryRun {

@@ -15,6 +15,7 @@ func TestClassify(t *testing.T) {
 		{"network", "dial tcp: i/o timeout", KindNetwork, false},
 		{"delete limit", "Safety abort: too many deletes (>5)", KindTooManyDel, true},
 		{"case clash", "files differ only by case", KindCaseClash, true},
+		{"name too long", `Failed to copy: Update Create failed: sftp: "Bad message" (SSH_FX_BAD_MESSAGE)`, KindNameTooLong, false},
 		{"resync", "Bisync critical error: must run --resync", KindNeedsResync, false},
 		{"unknown", "something odd", KindUnknown, false},
 	}

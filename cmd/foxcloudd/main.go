@@ -4,16 +4,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/WentTheFox/FoxCloud/internal/app"
+	"github.com/WentTheFox/FoxCloud/internal/config"
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
 	"github.com/WentTheFox/FoxCloud/internal/rclone"
@@ -21,8 +24,17 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/version"
 )
 
+// restartExit is the exit status after installing an update. It is non-zero on
+// purpose: the service managers (systemd's Restart=on-failure, the Windows
+// task's restart settings) only restart a process that "failed".
+const restartExit = 75
+
+var errRestart = errors.New("restarting to run the update")
+
 func main() {
-	if err := run(); err != nil {
+	if err := run(); errors.Is(err, errRestart) {
+		os.Exit(restartExit)
+	} else if err != nil {
 		fmt.Fprintln(os.Stderr, "foxcloudd:", err)
 		os.Exit(1)
 	}
@@ -73,11 +85,27 @@ func run() error {
 		fmt.Fprintf(logw, "foxcloudd: "+format+"\n", args...)
 	}
 
+	var restart atomic.Bool
 	if cfg.Update.CheckEnabled() && update.Releasable(version.Version) {
 		go update.Announce(runCtx, version.Version, cfg.Daemon.StartupDelayDuration()+time.Minute,
 			func(r update.Release) {
 				d.SetUpdate(r.Tag)
-				d.Logf("update available: %s (this is %s); run `foxcloud update` to install it", r.Tag, version.Version)
+				if cfg.Update.EffectiveMode() != config.UpdateAuto {
+					d.Logf("update available: %s (this is %s); run `foxcloud update` to install it", r.Tag, version.Version)
+					return
+				}
+				if !update.OldEnough(r, cfg.Update.AutoDelayDuration(), time.Now()) {
+					d.Logf("update %s is newer than %s but not yet %s old; auto mode will take it at a later check",
+						r.Tag, version.Version, cfg.Update.AutoDelayDuration())
+					return
+				}
+				if err := autoInstall(runCtx, d, r); err != nil {
+					d.Logf("auto-update to %s failed, nothing was changed: %v", r.Tag, err)
+					return
+				}
+				d.Logf("installed %s over %s (previous files kept as *.old); restarting", r.Tag, version.Version)
+				restart.Store(true)
+				cancel()
 			}, d.Logf)
 	}
 
@@ -92,7 +120,26 @@ func run() error {
 	fmt.Fprintf(logw, "foxcloudd: listening on %s; first pass held for %s\n",
 		sock, cfg.Daemon.StartupDelayDuration())
 	d.Run(runCtx)
-	return <-srvErr
+	err = <-srvErr
+	if restart.Load() {
+		return errRestart
+	}
+	return err
+}
+
+// autoInstall downloads and checks the release while sync carries on, then
+// takes the moment when no pass is running to swap the files.
+func autoInstall(ctx context.Context, d *daemon.Daemon, r update.Release) error {
+	dir, err := update.ExecDir()
+	if err != nil {
+		return err
+	}
+	staged, err := update.Prepare(ctx, r)
+	if err != nil {
+		return err
+	}
+	defer staged.Close()
+	return d.Exclusive(func() error { return staged.Install(dir) })
 }
 
 // maxLogSize is when the log file is moved aside to <file>.1 (one generation).

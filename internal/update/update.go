@@ -37,8 +37,10 @@ var apiBase = "https://api.github.com"
 
 // Release is the newest published release.
 type Release struct {
-	Tag    string
-	Assets map[string]string // asset name -> download URL
+	Tag string
+	// Published is when the release went up; zero if GitHub did not say.
+	Published time.Time
+	Assets    map[string]string // asset name -> download URL
 }
 
 // Archive names the archive built for this platform, e.g.
@@ -78,8 +80,9 @@ func Latest(ctx context.Context) (Release, error) {
 	}
 	defer resp.Body.Close()
 	var raw struct {
-		Tag    string `json:"tag_name"`
-		Assets []struct {
+		Tag       string    `json:"tag_name"`
+		Published time.Time `json:"published_at"`
+		Assets    []struct {
 			Name string `json:"name"`
 			URL  string `json:"browser_download_url"`
 		} `json:"assets"`
@@ -87,7 +90,7 @@ func Latest(ctx context.Context) (Release, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&raw); err != nil {
 		return Release{}, err
 	}
-	r := Release{Tag: raw.Tag, Assets: map[string]string{}}
+	r := Release{Tag: raw.Tag, Published: raw.Published, Assets: map[string]string{}}
 	for _, a := range raw.Assets {
 		r.Assets[a.Name] = a.URL
 	}

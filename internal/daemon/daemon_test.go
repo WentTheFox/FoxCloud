@@ -334,3 +334,36 @@ func TestMountPauseIsReported(t *testing.T) {
 	await := start(t, d)
 	await(StatePaused)
 }
+
+func TestExclusiveWaitsForRunningPassesAndBlocksNewOnes(t *testing.T) {
+	release := make(chan struct{})
+	var running atomic.Int32
+	d := New(job(config.RolePush, ""), func(ctx context.Context, _ string, _ func(), _ func(rclone.Direction)) error {
+		running.Add(1)
+		<-release
+		running.Add(-1)
+		return nil
+	}, 0)
+	await := start(t, d)
+	await(StateUploading)
+
+	entered := make(chan struct{})
+	go d.Exclusive(func() error {
+		if running.Load() != 0 {
+			t.Error("Exclusive ran while a pass was still running")
+		}
+		close(entered)
+		return nil
+	})
+	select {
+	case <-entered:
+		t.Fatal("Exclusive did not wait for the running pass")
+	case <-time.After(150 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Exclusive never ran after the pass finished")
+	}
+}

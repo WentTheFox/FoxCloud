@@ -39,15 +39,44 @@ type Daemon struct {
 	StartupDelay string `toml:"startup_delay"`
 }
 
-// Update controls the daemon's check for new releases. It never installs one:
-// that is `foxcloud update`.
+// Update modes.
+const (
+	UpdateNotify = "notify" // the default: check and say so, install nothing
+	UpdateAuto   = "auto"   // also install when every job is idle, then restart
+	UpdateOff    = "off"    // no network request at all
+)
+
+// DefaultAutoDelay is how old a release must be before auto mode installs it,
+// so a bad release can be pulled before machines pick it up.
+const DefaultAutoDelay = 24 * time.Hour
+
+// Update controls how the daemon treats new releases.
 type Update struct {
-	// Check turns the daily check on or off; on when unset.
-	Check *bool `toml:"check"`
+	// Mode is "notify" (default), "auto" or "off".
+	Mode string `toml:"mode"`
+	// AutoDelay is a Go duration such as "24h"; "0" installs at once.
+	AutoDelay string `toml:"auto_delay"`
+}
+
+// EffectiveMode is Mode with the default filled in.
+func (u Update) EffectiveMode() string {
+	if u.Mode == "" {
+		return UpdateNotify
+	}
+	return u.Mode
 }
 
 // CheckEnabled reports whether the daemon should look for new releases.
-func (u Update) CheckEnabled() bool { return u.Check == nil || *u.Check }
+func (u Update) CheckEnabled() bool { return u.EffectiveMode() != UpdateOff }
+
+// AutoDelayDuration returns how old a release must be before auto mode takes it.
+func (u Update) AutoDelayDuration() time.Duration {
+	if u.AutoDelay == "" {
+		return DefaultAutoDelay
+	}
+	d, _ := time.ParseDuration(u.AutoDelay)
+	return d
+}
 
 // StartupDelayDuration returns the hold before the first pass.
 func (d Daemon) StartupDelayDuration() time.Duration {
@@ -175,6 +204,17 @@ func (c *Config) Validate() error {
 		d, err := time.ParseDuration(c.Daemon.StartupDelay)
 		if err != nil || d < 0 {
 			return fmt.Errorf("[daemon] startup_delay %q is not a duration like \"2m\" or \"0\"", c.Daemon.StartupDelay)
+		}
+	}
+	switch c.Update.EffectiveMode() {
+	case UpdateNotify, UpdateAuto, UpdateOff:
+	default:
+		return fmt.Errorf("[update] mode %q is not one of notify, auto, off", c.Update.Mode)
+	}
+	if c.Update.AutoDelay != "" {
+		d, err := time.ParseDuration(c.Update.AutoDelay)
+		if err != nil || d < 0 {
+			return fmt.Errorf("[update] auto_delay %q is not a duration like \"24h\" or \"0\"", c.Update.AutoDelay)
 		}
 	}
 	if len(c.Jobs) == 0 {

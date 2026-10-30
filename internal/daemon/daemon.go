@@ -33,8 +33,11 @@ type Daemon struct {
 	Logf          func(format string, args ...any)
 	WatchDebounce time.Duration
 	// Mount runs mount jobs. Without it they are left alone.
-	Mount        Mounter
-	mounts       []config.Job
+	Mount  Mounter
+	mounts []config.Job
+	// gate is held for reading by every running pass and for writing by
+	// Exclusive: a writer waits for the passes to finish and keeps new ones out.
+	gate         sync.RWMutex
 	startupDelay time.Duration
 	jobs         []config.Job
 
@@ -201,6 +204,8 @@ func activeState(role string) State {
 }
 
 func (d *Daemon) pass(parent context.Context, j config.Job) {
+	d.gate.RLock()
+	defer d.gate.RUnlock()
 	ctx, cancel := context.WithCancel(parent)
 	d.mu.Lock()
 	d.cancel[j.Name] = cancel
@@ -260,6 +265,15 @@ func (d *Daemon) emit(ev Event) {
 		default:
 		}
 	}
+}
+
+// Exclusive runs fn while no sync pass is running and none can start: it waits
+// for the running ones to finish, which is what installing an update needs. It
+// does not touch mounts. fn should be short.
+func (d *Daemon) Exclusive(fn func() error) error {
+	d.gate.Lock()
+	defer d.gate.Unlock()
+	return fn()
 }
 
 // SetUpdate records that a newer release exists and tells subscribers, so a

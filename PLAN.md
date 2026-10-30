@@ -161,21 +161,28 @@ docs/               setup guides
   SmartScreen and Gatekeeper will still warn. First release `v0.1.0` built and signed on GitHub. Later:
   the packaging milestones plug into the same release job.
 
-- **Updates (notify and manual done, unattended install not).** The daemon
-  checks GitHub for a newer release once after start-up and then about daily
-  with jitter (timers, no polling), and logs "update available"; `[update]
-  check = false` turns the request off. `foxcloud update [-check]` downloads the
-  platform archive, verifies it against the release `checksums.txt` (and, on
-  Windows, that both executables carry the pinned self-signed certificate),
-  refuses while a job is syncing, swaps the binaries keeping `*.old`, and
-  tells you to restart the daemon. The trust chain is weak (no detached release
-  signature; see CI builds), which is why nothing installs on its own. Not yet
-  run against a real release. Open:
-  - An opt-in `mode = "auto"` that installs when every job is idle and then
-    restarts the daemon (the supervisors need a restart-on-exit policy first).
-  - "Update available" shows in the tray (done); "restarting to update" and the
-    widget are open.
-  - A `foxcloud update --rollback` that restores the `*.old` files.
+- **Updates (done: notify, manual, auto, rollback; none run against a real
+  release).** `[update] mode` is `notify` (default), `auto` or `off`. The daemon
+  checks GitHub once after start-up and then about daily with jitter (timers,
+  no polling). `foxcloud update [-check|-rollback]` and the tray's update item
+  download the platform archive, verify it against the release `checksums.txt`
+  (and, on Windows, the pinned self-signed certificate on every executable),
+  refuse while a job is syncing, swap `foxcloud`, `foxcloudd` and
+  `foxcloud-tray` keeping `*.old`, and say to restart. In `auto` mode the
+  daemon does the same once the release is `auto_delay` old (24 h by default,
+  so a bad release can be pulled first): it downloads and checks while sync
+  carries on, then waits for every running pass to finish and holds new ones
+  off (`Daemon.Exclusive`) just for the file swap, logs it and exits with
+  status 75. The service manager restarts it: systemd's `Restart=on-failure`
+  does; the Windows task's restart settings should (a non-zero exit is a
+  failure) but that is untested. A failed check or install changes nothing and
+  is tried again at the next check. The trust chain is weak (no detached
+  release signature; see CI builds), which is why `auto` is opt-in. Open:
+  - Mounts are interrupted by the restart (rclone is stopped with the daemon).
+  - Nothing restarts the tray, which keeps running the old binary until
+    restarted.
+  - A crash loop after a bad auto-update is not detected; rollback is manual
+    (`foxcloud update -rollback`).
   - Where a package manager is used (winget, Homebrew, an AUR package), let it
     update and skip the built-in updater.
 

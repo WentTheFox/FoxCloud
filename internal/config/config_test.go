@@ -52,6 +52,8 @@ func TestValidate(t *testing.T) {
 		{"push without path", remote + "[[job]]\nname=\"a\"\nrole=\"push\"\n", "local_path"},
 		{"mount without point", remote + "[[job]]\nname=\"a\"\nrole=\"mount\"\n", "mount_point"},
 		{"duplicate", remote + "[[job]]\nname=\"a\"\nrole=\"pull\"\nlocal_path=\"/x\"\n[[job]]\nname=\"a\"\nrole=\"pull\"\nlocal_path=\"/y\"\n", "duplicate"},
+		{"bad update mode", remote + "[update]\nmode=\"yolo\"\n[[job]]\nname=\"a\"\nrole=\"pull\"\nlocal_path=\"/x\"\n", "[update] mode"},
+		{"bad auto delay", remote + "[update]\nauto_delay=\"soon\"\n[[job]]\nname=\"a\"\nrole=\"pull\"\nlocal_path=\"/x\"\n", "auto_delay"},
 		{"bad interval", remote + "[[job]]\nname=\"a\"\nrole=\"pull\"\nlocal_path=\"/x\"\ninterval=\"soon\"\n", "interval"},
 	}
 	for _, tt := range tests {
@@ -75,5 +77,23 @@ func TestDefaultPathEnvOverride(t *testing.T) {
 func TestExampleConfigLoads(t *testing.T) {
 	if _, err := Load(filepath.Join("..", "..", "config.example.toml")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUpdateModes(t *testing.T) {
+	if (Update{}).EffectiveMode() != UpdateNotify || !(Update{}).CheckEnabled() {
+		t.Error("the default must be notify, with checking on")
+	}
+	if (Update{Mode: UpdateOff}).CheckEnabled() {
+		t.Error("off must stop the check")
+	}
+	if !(Update{Mode: UpdateAuto}).CheckEnabled() {
+		t.Error("auto must check")
+	}
+	if (Update{}).AutoDelayDuration() != DefaultAutoDelay {
+		t.Error("the default auto delay is 24h")
+	}
+	if (Update{AutoDelay: "0"}).AutoDelayDuration() != 0 {
+		t.Error("\"0\" installs at once")
 	}
 }

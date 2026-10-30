@@ -14,6 +14,8 @@ ExecStartPre=-/usr/bin/systemctl --system is-system-running --wait
 # Optional file with FOXCLOUD_CONFIG=/path/to/config.toml
 EnvironmentFile=-%E/foxcloud/env
 ExecStart=%h/.local/bin/foxcloudd
+# Also how auto-updates restart the daemon: it exits with status 75 after
+# installing, which counts as a failure here.
 Restart=on-failure
 RestartSec=30
 # Be nice to the desktop while syncing.

@@ -27,10 +27,16 @@ encrypt_directory_names = true
 key_command = "keyring:crypt-key"
 
 [update]
-# Once a day (and once after start-up) the daemon asks GitHub whether a newer
-# release exists and says so in its log. It never installs anything; run
-# `foxcloud update` for that. Set to false to make no network request at all.
-check = true
+# notify (default): once a day (and once after start-up) the daemon asks GitHub
+#   whether a newer release exists and says so in its log and the tray. It
+#   installs nothing; run `foxcloud update`, or click the tray item.
+# auto: also installs it, once the release is auto_delay old and every job is
+#   idle, then restarts itself. Releases are checked by their checksum (and,
+#   on Windows, the signing certificate), with no detached signature, so only
+#   turn this on if you accept that. `foxcloud update --rollback` undoes it.
+# off: no network request at all.
+mode = "notify"
+# auto_delay = "24h"        # minimum age of a release before auto installs it
 
 # One table per job. Roles: push, pull, bisync, mount.
 [[job]]

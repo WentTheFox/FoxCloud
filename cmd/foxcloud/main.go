@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -35,7 +34,7 @@ commands:
   resume <job>                    clear a pause after fixing the cause
   sync-now <job>                  ask the running daemon to sync a job now
   stop <job>                      ask the daemon to cancel a job's running pass
-  update [-check]                 install the newest release (-check only looks)
+  update [-check|-rollback]       install the newest release (-check only looks, -rollback undoes the last one)
   status-json [-wait REV]         the daemon's state as JSON; with -wait, block until it differs from REV
   version                         print the build version
   watch                           follow what the daemon's jobs are doing
@@ -291,8 +290,21 @@ func formatTime(t time.Time) string {
 func updateCmd(args []string) error {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	checkOnly := fs.Bool("check", false, "only report whether a newer release exists")
+	rollback := fs.Bool("rollback", false, "put back the version saved by the last update")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *rollback {
+		dir, err := update.ExecDir()
+		if err != nil {
+			return err
+		}
+		restored, err := update.Rollback(dir)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("restored %s in %s; restart the daemon to run it\n", strings.Join(restored, ", "), dir)
+		return nil
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -324,34 +336,14 @@ func updateCmd(args []string) error {
 		}
 	}
 
-	exe, err := os.Executable()
+	dir, err := update.ExecDir()
 	if err != nil {
 		return err
 	}
-	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+	if err := update.Apply(ctx, r, dir); err != nil {
 		return err
 	}
-	tmp, err := os.MkdirTemp("", "foxcloud-update-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
-
-	archive, err := update.Download(ctx, r, tmp)
-	if err != nil {
-		return err
-	}
-	files, err := update.Extract(archive, tmp)
-	if err != nil {
-		return err
-	}
-	if err := update.VerifySignatures(files); err != nil {
-		return err
-	}
-	if err := update.Install(filepath.Dir(exe), files); err != nil {
-		return err
-	}
-	fmt.Printf("installed %s in %s; the previous files are kept as *.old\n", r.Tag, filepath.Dir(exe))
+	fmt.Printf("installed %s in %s; the previous files are kept as *.old\n", r.Tag, dir)
 	fmt.Println("restart the daemon to run it (Linux: systemctl --user restart foxcloudd; Windows: Stop-ScheduledTask / Start-ScheduledTask \"FoxCloud daemon\")")
 	return nil
 }

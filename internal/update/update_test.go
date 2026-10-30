@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestNewer(t *testing.T) {
@@ -204,5 +205,48 @@ func TestMissingOptionalTrayIsFine(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(filepath.Join(dir, exeName("foxcloud-tray"))); string(got) != "keep" {
 		t.Errorf("a release without a tray must leave the installed one alone, got %q", got)
+	}
+}
+
+func TestOldEnough(t *testing.T) {
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	r := Release{Tag: "v1.0.0", Published: now.Add(-25 * time.Hour)}
+	if !OldEnough(r, 24*time.Hour, now) {
+		t.Error("a 25 h old release should pass a 24 h delay")
+	}
+	if OldEnough(Release{Published: now.Add(-time.Hour)}, 24*time.Hour, now) {
+		t.Error("a 1 h old release must wait")
+	}
+	if OldEnough(Release{}, 0, now) {
+		t.Error("a release of unknown age is never old enough, even with no delay")
+	}
+}
+
+func TestRollbackRestoresTheSavedVersion(t *testing.T) {
+	arc := archiveBytes(t, "v1.0.0", map[string]string{exeName("foxcloud"): "new-cli", exeName("foxcloudd"): "new-daemon"})
+	archive := filepath.Join(t.TempDir(), Release{Tag: "v1.0.0"}.Archive())
+	os.WriteFile(archive, arc, 0o644)
+	files, err := Extract(archive, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, exeName("foxcloud")), []byte("old-cli"), 0o755)
+	os.WriteFile(filepath.Join(dir, exeName("foxcloudd")), []byte("old-daemon"), 0o755)
+	if err := Install(dir, files); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := Rollback(dir)
+	if err != nil || len(restored) != 2 {
+		t.Fatalf("Rollback = %v, %v", restored, err)
+	}
+	for name, want := range map[string]string{exeName("foxcloud"): "old-cli", exeName("foxcloudd"): "old-daemon"} {
+		if got, _ := os.ReadFile(filepath.Join(dir, name)); string(got) != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if _, err := Rollback(dir); err == nil {
+		t.Error("a second rollback has nothing to restore and should say so")
 	}
 }

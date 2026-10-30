@@ -121,14 +121,14 @@ func (e *Engine) Resume(name string) error {
 }
 
 func (e *Engine) remoteEnv(ctx context.Context) ([]string, error) {
-	pw, err := secret.FromCommand(ctx, e.Cfg.Crypt.PasswordCommand)
+	key, err := secret.Resolve(ctx, e.Cfg.Crypt.KeyCommand)
 	if err != nil {
 		return nil, err
 	}
-	if pw == "" {
-		return nil, errors.New("crypt.password_command is not set; refusing to sync unencrypted")
+	if key == "" {
+		return nil, errors.New("crypt.key_command is not set; refusing to sync unencrypted")
 	}
-	salt, err := secret.FromCommand(ctx, e.Cfg.Crypt.SaltCommand)
+	pw, salt, err := secret.Derive(key)
 	if err != nil {
 		return nil, err
 	}
@@ -136,11 +136,9 @@ func (e *Engine) remoteEnv(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	obsSalt := ""
-	if salt != "" {
-		if obsSalt, err = rclone.Obscure(ctx, e.Rclone, salt); err != nil {
-			return nil, err
-		}
+	obsSalt, err := rclone.Obscure(ctx, e.Rclone, salt)
+	if err != nil {
+		return nil, err
 	}
 	return rclone.Env(e.Cfg, obsPw, obsSalt), nil
 }

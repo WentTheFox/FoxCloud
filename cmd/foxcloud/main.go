@@ -6,13 +6,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/WentTheFox/FoxCloud/internal/config"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
+	"github.com/WentTheFox/FoxCloud/internal/secret"
 	"github.com/WentTheFox/FoxCloud/internal/state"
 )
 
@@ -22,6 +26,9 @@ commands:
   run [-dry-run] [-force] <job>   run one sync pass
   status [job]                    show last success, failures and pauses
   resume <job>                    clear a pause after fixing the cause
+  secret generate                 create the crypt master key in the OS keyring
+  secret show [name]              print a secret, to back it up offline
+  secret set <name>               store a secret read from stdin (restore a backup)
 `
 
 func main() {
@@ -38,6 +45,10 @@ func run() error {
 	if flag.NArg() == 0 {
 		flag.Usage()
 		return errors.New("no command given")
+	}
+
+	if flag.Arg(0) == "secret" {
+		return secretCmd(flag.Args()[1:])
 	}
 
 	path := *configPath
@@ -85,6 +96,50 @@ func run() error {
 	default:
 		flag.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
+	}
+}
+
+func secretCmd(args []string) error {
+	if len(args) == 0 {
+		return errors.New("secret needs a subcommand: generate, show or set")
+	}
+	switch args[0] {
+	case "generate":
+		if err := secret.GenerateAll(); err != nil {
+			return err
+		}
+		fmt.Println("Created", strings.Join(secret.Names, " and "), "in the OS keyring.")
+		fmt.Println("Back them up offline now: run `foxcloud secret show` in your own terminal.")
+		fmt.Println("Losing them means losing every encrypted file.")
+		return nil
+	case "show":
+		names := secret.Names
+		if len(args) > 1 {
+			names = args[1:2]
+		}
+		for _, n := range names {
+			v, err := secret.Get(n)
+			if err != nil {
+				return fmt.Errorf("%s: %w", n, err)
+			}
+			fmt.Printf("%s: %s\n", n, v)
+		}
+		return nil
+	case "set":
+		if len(args) != 2 || !slices.Contains(secret.Names, args[1]) {
+			return fmt.Errorf("set needs one of: %s", strings.Join(secret.Names, ", "))
+		}
+		b, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		v := strings.TrimRight(string(b), "\r\n")
+		if v == "" {
+			return errors.New("empty secret on stdin")
+		}
+		return secret.Set(args[1], v)
+	default:
+		return fmt.Errorf("unknown secret subcommand %q", args[0])
 	}
 }
 

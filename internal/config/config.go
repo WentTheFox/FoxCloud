@@ -38,10 +38,10 @@ type Remote struct {
 }
 
 type Crypt struct {
-	EncryptFilenames      bool   `toml:"encrypt_filenames"`
-	EncryptDirectoryNames bool   `toml:"encrypt_directory_names"`
-	PasswordCommand       string `toml:"password_command"`
-	SaltCommand           string `toml:"salt_command"`
+	EncryptFilenames      bool `toml:"encrypt_filenames"`
+	EncryptDirectoryNames bool `toml:"encrypt_directory_names"`
+	// KeyCommand yields the master key the crypt password and salt derive from.
+	KeyCommand string `toml:"key_command"`
 }
 
 type Job struct {

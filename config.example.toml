@@ -13,9 +13,11 @@ path = "/foxcloud"
 [crypt]
 encrypt_filenames = true
 encrypt_directory_names = true
-# Command printing the crypt password / salt (backed by the OS keychain).
-password_command = ""
-salt_command = ""
+# Where the master key comes from; the crypt password and salt are derived
+# from it. "keyring:<name>" reads the OS keyring (create it with
+# `foxcloud secret generate`), anything else is a shell command that prints the
+# key. Never put the key itself here.
+key_command = "keyring:crypt-key"
 
 # One table per job. Roles: push, pull, bisync, mount.
 [[job]]

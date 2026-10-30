@@ -109,6 +109,13 @@ docs/               setup guides
 
 ## Backlog
 
+- **File watching (done for `push`).** `watch = true` syncs 30 s after changes
+  stop, using OS file notifications (fsnotify), one watch per folder. On Linux
+  the inotify limit (`fs.inotify.max_user_watches`) may be too low for a very
+  large tree; folders that cannot be watched are logged and the interval still
+  covers them. Changes to files the filter excludes also trigger a pass. Not
+  for `pull`/`bisync`, which would trigger themselves.
+
 - **Let the system settle after boot before the first sync.** The daemon and
   the tray must not start a pass the instant the machine comes up: boot-time
   disk activity (indexing, updates, other services starting) competes with an

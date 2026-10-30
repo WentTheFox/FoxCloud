@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -227,4 +229,41 @@ func TestPushIgnoresReportedDirection(t *testing.T) {
 	await := start(t, d)
 	await(StateUploading)
 	await(StateSynced) // a download event in between would have been skipped past
+}
+
+func TestWatchedPushJobSyncsAfterChange(t *testing.T) {
+	dir := t.TempDir()
+	var passes atomic.Int32
+	jobs := []config.Job{{Name: "a", Role: config.RolePush, LocalPath: dir, Watch: true}}
+	d := New(jobs, func(context.Context, string, func(), func(rclone.Direction)) error {
+		passes.Add(1)
+		return nil
+	}, 0)
+	d.WatchDebounce = 100 * time.Millisecond
+	await := start(t, d)
+	await(StateSynced)
+	time.Sleep(300 * time.Millisecond) // the watch starts after the first pass
+	os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644)
+	await(StateSynced)
+	if passes.Load() < 2 {
+		t.Errorf("passes = %d, want a second one after the file changed", passes.Load())
+	}
+}
+
+func TestWatchIsIgnoredForOtherRoles(t *testing.T) {
+	dir := t.TempDir()
+	var passes atomic.Int32
+	jobs := []config.Job{{Name: "a", Role: config.RoleBisync, LocalPath: dir, Watch: true}}
+	d := New(jobs, func(context.Context, string, func(), func(rclone.Direction)) error {
+		passes.Add(1)
+		return nil
+	}, 0)
+	d.WatchDebounce = 50 * time.Millisecond
+	await := start(t, d)
+	await(StateSynced)
+	os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644)
+	time.Sleep(500 * time.Millisecond)
+	if passes.Load() != 1 {
+		t.Errorf("passes = %d, want 1", passes.Load())
+	}
 }

@@ -9,6 +9,7 @@ require (
 
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
+	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	golang.org/x/sys v0.27.0 // indirect
 )

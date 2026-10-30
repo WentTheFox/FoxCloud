@@ -64,6 +64,10 @@ func run() error {
 		return e.Run(ctx, job, engine.RunOptions{OnResync: onResync, OnDirection: onDirection})
 	}, cfg.Daemon.StartupDelayDuration())
 
+	d.Logf = func(format string, args ...any) {
+		fmt.Fprintf(logw, "foxcloudd: "+format+"\n", args...)
+	}
+
 	// If the socket cannot be served (another daemon owns it, say), stop
 	// everything: a daemon nobody can talk to is worse than none.
 	srvErr := make(chan error, 1)

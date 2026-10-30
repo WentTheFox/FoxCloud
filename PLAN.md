@@ -181,6 +181,9 @@ docs/               setup guides
 
 - **Daemon as a service.** Linux is done: `packaging/linux/` has a systemd user
   unit (waits for boot via `systemctl is-system-running --wait`, logs to the
-  journal) and `install.sh`. Still to do: the Windows service wrapper (delayed
-  start, log to a file), plus the Plasma widget and optional tray from
-  milestone 4. The unit has not been run on a real systemd host yet.
+  journal) and `install.sh`. Windows is done as a logon scheduled task, not a
+  service (`packaging/windows/install.ps1`): the crypt key sits in the user's
+  credential store, which a service account cannot read. The daemon takes
+  `-logfile` (rotated at 5 MiB). Neither wrapper has been run for real yet.
+  Still to do: the Plasma widget and optional tray from milestone 4, and a
+  Windows tray.

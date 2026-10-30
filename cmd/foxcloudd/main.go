@@ -6,8 +6,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/WentTheFox/FoxCloud/internal/app"
@@ -25,9 +27,20 @@ func main() {
 
 func run() error {
 	configPath := flag.String("config", "", "config file (default: $FOXCLOUD_CONFIG, else user config dir)")
+	logFile := flag.String("logfile", "", "append the log to this file instead of stderr (rotated at 5 MiB)")
 	flag.Parse()
 
-	cfg, e, err := app.Load(*configPath, os.Stderr)
+	logw := io.Writer(os.Stderr)
+	if *logFile != "" {
+		f, err := openLog(*logFile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		logw = f
+	}
+
+	cfg, e, err := app.Load(*configPath, logw)
 	if err != nil {
 		return err
 	}
@@ -53,8 +66,25 @@ func run() error {
 		cancel()
 	}()
 
-	fmt.Fprintf(os.Stderr, "foxcloudd: listening on %s; first pass held for %s\n",
+	fmt.Fprintf(logw, "foxcloudd: listening on %s; first pass held for %s\n",
 		sock, cfg.Daemon.StartupDelayDuration())
 	d.Run(runCtx)
 	return <-srvErr
+}
+
+// maxLogSize is when the log file is moved aside to <file>.1 (one generation).
+const maxLogSize = 5 << 20
+
+// openLog opens the log for appending, first rotating it if it has grown large.
+func openLog(path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	if fi, err := os.Stat(path); err == nil && fi.Size() > maxLogSize {
+		os.Remove(path + ".1")
+		if err := os.Rename(path, path+".1"); err != nil {
+			return nil, err
+		}
+	}
+	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 }

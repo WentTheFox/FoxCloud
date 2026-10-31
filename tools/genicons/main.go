@@ -30,8 +30,9 @@ const size = 64
 
 // The PNGs are scaled down by the Linux tray and the Plasma widget to about
 // 22 px, where Lucide's stroke of 2 (8% of the width) blurs into faint lines
-// beside the panel's pixel-aligned icons. They are drawn heavier; the ICOs
-// Windows picks its own small sizes from keep the original weight.
+// beside the panel's pixel-aligned icons. They are drawn heavier. The ICO is a
+// single 64 px image that Windows scales down to 16-24 px, so it needs the same
+// weight or the strokes come out hairline thin.
 const pngStroke = "3"
 
 func main() {
@@ -52,7 +53,7 @@ func main() {
 			if err != nil {
 				fatal(fmt.Errorf("%s: %w", svg, err))
 			}
-			icoBytes, err := render(svg, color, "2")
+			icoBytes, err := render(svg, color, pngStroke)
 			if err != nil {
 				fatal(fmt.Errorf("%s: %w", svg, err))
 			}

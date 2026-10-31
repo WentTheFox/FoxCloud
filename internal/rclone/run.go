@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/WentTheFox/FoxCloud/internal/proc"
 	"io"
 	"os"
 	"os/exec"
@@ -33,7 +34,7 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 // Output runs rclone and returns its stdout alone, for commands whose output
 // is parsed. Stderr is returned in the error on failure.
 func Output(ctx context.Context, bin string, args, env []string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := proc.Hide(exec.CommandContext(ctx, bin, args...))
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.Output()
 	var ee *exec.ExitError
@@ -59,7 +60,7 @@ func Run(ctx context.Context, bin string, args, env []string, out io.Writer, onM
 // is about and the message), not just the message. rclone must have been given
 // --use-json-log.
 func RunLog(ctx context.Context, bin string, args, env []string, out io.Writer, onRec func(LogRecord)) (output string, err error) {
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := proc.Hide(exec.CommandContext(ctx, bin, args...))
 	cmd.Env = append(os.Environ(), env...)
 	// A plain kill leaves a FUSE mount behind, stale and unreadable, so ask
 	// rclone to stop first. Windows cannot signal a process this way.

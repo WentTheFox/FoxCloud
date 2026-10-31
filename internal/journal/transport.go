@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/WentTheFox/FoxCloud/internal/proc"
 	"io"
 	"os/exec"
 	"regexp"
@@ -58,7 +59,7 @@ func (s *SSH) command(ctx context.Context, remote string, extra ...string) *exec
 	}
 	args := append(append([]string(nil), extra...), s.Args...)
 	args = append(args, remote)
-	return exec.CommandContext(ctx, bin, args...)
+	return proc.Hide(exec.CommandContext(ctx, bin, args...))
 }
 
 func (s *SSH) dir() string {

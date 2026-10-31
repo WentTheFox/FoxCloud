@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/WentTheFox/FoxCloud/internal/proc"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -28,7 +29,7 @@ func Resolve(ctx context.Context, alias string) (Result, error) {
 		return Result{}, fmt.Errorf("ssh_host needs the ssh command in PATH: %w", err)
 	}
 	var out, errOut bytes.Buffer
-	cmd := exec.CommandContext(ctx, ssh, "-G", alias)
+	cmd := proc.Hide(exec.CommandContext(ctx, ssh, "-G", alias))
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Run(); err != nil {
 		return Result{}, fmt.Errorf("ssh -G %s: %w: %s", alias, err, strings.TrimSpace(errOut.String()))

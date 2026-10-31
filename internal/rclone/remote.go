@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/WentTheFox/FoxCloud/internal/proc"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -62,7 +63,7 @@ func Env(c *config.Config, password, salt string) []string {
 // Obscure converts a plain secret into the form rclone expects in config. The
 // secret goes over stdin so it never shows up in a process listing.
 func Obscure(ctx context.Context, bin, plain string) (string, error) {
-	cmd := exec.CommandContext(ctx, bin, "obscure", "-")
+	cmd := proc.Hide(exec.CommandContext(ctx, bin, "obscure", "-"))
 	cmd.Stdin = strings.NewReader(plain)
 	var out bytes.Buffer
 	cmd.Stdout = &out

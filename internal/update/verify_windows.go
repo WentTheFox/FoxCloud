@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"github.com/WentTheFox/FoxCloud/internal/proc"
 	"os/exec"
 	"strings"
 )
@@ -22,7 +23,7 @@ func VerifySignatures(files map[string]string) error {
 	const script = `$s = Get-AuthenticodeSignature -LiteralPath $args[0]; ` +
 		`if ($s.SignerCertificate) { $s.SignerCertificate.Thumbprint } else { 'none' }; $s.Status`
 	for name, path := range files {
-		out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script, path).Output()
+		out, err := proc.Hide(exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script, path)).Output()
 		if err != nil {
 			return fmt.Errorf("checking the signature of %s: %w", name, err)
 		}

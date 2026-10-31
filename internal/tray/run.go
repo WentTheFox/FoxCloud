@@ -8,13 +8,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"fyne.io/systray"
 
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
+	"github.com/WentTheFox/FoxCloud/internal/proc"
 )
+
+// maxJobSlots is how many jobs the menu can list.
+const maxJobSlots = 12
 
 // Run shows the tray icon and follows the daemon at sock until the user
 // quits or ctx is cancelled. It blocks, and must be called from the main
@@ -27,7 +33,8 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 	var (
 		mu       sync.Mutex
 		model    = NewModel()
-		jobItems = map[string]*systray.MenuItem{}
+		slots    []*systray.MenuItem
+		slotJob  [maxJobSlots]string
 		offline  *systray.MenuItem
 		updItem  *systray.MenuItem
 	)
@@ -42,37 +49,21 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 		} else {
 			offline.Hide()
 		}
-		live := map[string]bool{}
-		for _, ev := range model.Jobs() {
-			live[ev.Job] = true
-			it := jobItems[ev.Job]
-			if it == nil {
-				it = systray.AddMenuItem("", "Click to sync now")
-				jobItems[ev.Job] = it
-				job := ev.Job
-				go func() {
-					for {
-						select {
-						case <-it.ClickedCh:
-							go func() {
-								sock, _ := daemon.SocketPath()
-								if _, err := daemon.Do(sock, daemon.Request{Cmd: "sync-now", Job: job}); err != nil {
-									logf("sync-now %s: %v", job, err)
-								}
-							}()
-						case <-ctx.Done():
-							return
-						}
-					}
-				}()
+		// Jobs fill the pre-made slots in name order. The slots sit above the
+		// separator; an item added later would land below Quit.
+		jobs := model.Jobs()
+		for i, it := range slots {
+			if i < len(jobs) {
+				slotJob[i] = jobs[i].Job
+				it.SetTitle(JobLine(jobs[i]))
+				it.Show()
+			} else {
+				slotJob[i] = ""
+				it.Hide()
 			}
-			it.SetTitle(JobLine(ev))
-			it.Show()
 		}
-		for name, it := range jobItems {
-			if !live[name] {
-				it.Hide() // the daemon is gone or no longer lists it
-			}
+		if len(jobs) > len(slots) {
+			logf("the menu has room for %d jobs; %d are not listed", len(slots), len(jobs)-len(slots))
 		}
 		if text := model.UpdateText(); text != "" {
 			updItem.SetTitle(text)
@@ -88,8 +79,35 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 	}
 
 	systray.Run(func() {
+		systray.SetOnTapped(togglePopup(logf))
 		offline = systray.AddMenuItem("FoxCloud service is not running", "Start the foxcloudd service")
 		offline.Disable()
+		for i := 0; i < maxJobSlots; i++ {
+			it := systray.AddMenuItem("", "Click to sync now")
+			it.Hide()
+			slots = append(slots, it)
+			go func() {
+				for {
+					select {
+					case <-it.ClickedCh:
+						mu.Lock()
+						job := slotJob[i]
+						mu.Unlock()
+						if job == "" {
+							continue
+						}
+						go func() {
+							sock, _ := daemon.SocketPath()
+							if _, err := daemon.Do(sock, daemon.Request{Cmd: "sync-now", Job: job}); err != nil {
+								logf("sync-now %s: %v", job, err)
+							}
+						}()
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
+		}
 		updItem = systray.AddMenuItem("", "Download, verify and install the newer release")
 		systray.AddSeparator()
 		quit := systray.AddMenuItem("Quit tray", "Close this icon; sync keeps running")
@@ -184,7 +202,7 @@ func runUpdate() (string, error) {
 			bin = p
 		}
 	}
-	out, err := exec.Command(bin, "update").CombinedOutput()
+	out, err := proc.Hide(exec.Command(bin, "update")).CombinedOutput()
 	return string(out), err
 }
 
@@ -201,4 +219,59 @@ func lastLine(out string, err error) string {
 		return l
 	}
 	return err.Error()
+}
+
+// togglePopup returns the handler for a left click: open the status popup, or
+// close it if it is already open. The popup closes itself when it loses focus,
+// which happens as the click lands on the tray, so a click that arrives just
+// after it went away is the one that closed it and must not reopen it.
+func togglePopup(logf func(string, ...any)) func() {
+	var (
+		mu       sync.Mutex
+		cur      *exec.Cmd
+		closedAt time.Time
+	)
+	return func() {
+		script := popupScript()
+		if script == "" {
+			return // no popup installed (Linux uses the Plasma widget)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if cur != nil {
+			_ = cur.Process.Kill()
+			return
+		}
+		if time.Since(closedAt) < 400*time.Millisecond {
+			return
+		}
+		cmd := proc.Hide(exec.Command("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+			"-STA", "-File", script))
+		if err := cmd.Start(); err != nil {
+			logf("popup: %v", err)
+			return
+		}
+		cur = cmd
+		go func() {
+			_ = cmd.Wait()
+			mu.Lock()
+			cur, closedAt = nil, time.Now()
+			mu.Unlock()
+		}()
+	}
+}
+
+// popupScript is foxcloud-popup.ps1 beside this executable, or "".
+func popupScript() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if p := filepath.Join(filepath.Dir(exe), "foxcloud-popup.ps1"); fileExists(p) {
+		return p
+	}
+	return ""
 }

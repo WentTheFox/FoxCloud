@@ -60,6 +60,12 @@ Copy-Item (Join-Path $BinDir 'foxcloud.exe'), (Join-Path $BinDir 'foxcloudd.exe'
 $trayExe = Join-Path $BinDir 'foxcloud-tray.exe'
 if (Test-Path $trayExe) { Copy-Item $trayExe $InstallDir -Force }
 
+# The tray's click-to-open status popup and the status icons it shows.
+Copy-Item (Join-Path $PSScriptRoot 'foxcloud-popup.ps1') $InstallDir -Force
+$iconDir = Join-Path $InstallDir 'icons'
+New-Item -ItemType Directory -Force $iconDir | Out-Null
+Copy-Item (Join-Path $root 'internal/tray/icons/*.png') $iconDir -Force
+
 $exe = Join-Path $InstallDir 'foxcloudd.exe'
 $action = New-ScheduledTaskAction -Execute $exe -Argument "-logfile `"$logFile`""
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"

@@ -17,6 +17,7 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/app"
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
+	"github.com/WentTheFox/FoxCloud/internal/journal"
 	"github.com/WentTheFox/FoxCloud/internal/secret"
 	"github.com/WentTheFox/FoxCloud/internal/update"
 	"github.com/WentTheFox/FoxCloud/internal/version"
@@ -36,6 +37,7 @@ commands:
   stop <job>                      ask the daemon to cancel a job's running pass
   update [-check|-rollback]       install the newest release (-check only looks, -rollback undoes the last one)
   status-json [-wait REV]         the daemon's state as JSON; with -wait, block until it differs from REV
+  journal-check                   append a test record to the shared journal and time it coming back
   version                         print the build version
   watch                           follow what the daemon's jobs are doing
   secret generate                 create the crypt master key in the OS keyring
@@ -101,6 +103,8 @@ func run() error {
 		return status(e, args)
 	case "usage":
 		return showUsage(ctx, e)
+	case "journal-check":
+		return journalCheck(ctx, e)
 	case "verify":
 		fs := flag.NewFlagSet("verify", flag.ExitOnError)
 		n := fs.Int("n", 25, "how many random files to download and compare")
@@ -374,4 +378,56 @@ func statusJSONCmd(args []string) error {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(v)
+}
+
+// journalCheck proves the journal works end to end against the real server:
+// it follows the log, appends one test record as a made-up machine, and times
+// how long the record takes to come back. Other machines ignore the record.
+func journalCheck(ctx context.Context, e *engine.Engine) error {
+	jc, err := e.JournalClient(ctx)
+	if err != nil {
+		return err
+	}
+	ssh, ok := jc.Transport.(*journal.SSH)
+	if !ok {
+		return errors.New("the journal is not using SSH")
+	}
+	if err := ssh.Setup(ctx); err != nil {
+		return err
+	}
+	size, err := ssh.Size(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot reach the journal over SSH: %w", err)
+	}
+	fmt.Printf("journal %s on the server: %d bytes\n", e.Cfg.Journal.LogPath(), size)
+
+	machine := fmt.Sprintf("check-%d", os.Getpid())
+	line, err := jc.Codec.Encode(journal.Record{Machine: machine, Gen: "check", Seq: 1, Time: time.Now().Unix(), Op: "ping"})
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	got := make(chan time.Time, 1)
+	go ssh.Follow(ctx, size, func(l string, _ int64) {
+		if r, err := jc.Codec.Decode(l); err == nil && r.Machine == machine {
+			select {
+			case got <- time.Now():
+			default:
+			}
+		}
+	})
+	time.Sleep(2 * time.Second) // let tail -F connect before writing
+	start := time.Now()
+	if err := ssh.Append(ctx, line+"\n"); err != nil {
+		return err
+	}
+	select {
+	case at := <-got:
+		fmt.Printf("ok: a record written over SSH came back through tail -F in %s\n", at.Sub(start).Round(time.Millisecond))
+		return nil
+	case <-ctx.Done():
+		return errors.New("the record never came back through tail -F; the journal will not work on this server")
+	}
 }

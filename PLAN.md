@@ -147,43 +147,47 @@ docs/               setup guides
   - Check how rclone's bisync `--case-insensitive` / `--ignore-case-sync`
     options and its own handling behave first; they may cover part of this.
 
-- **Change journal: learn about other machines' changes without a full scan
-  (design agreed, not built).** Each machine appends a record for every change
-  it uploads to its own journal on the remote, and other machines read just
-  the new records and fetch only the files they name, instead of listing the
-  whole tree (about 4,500 folders over SFTP). Decisions so far:
-  - **The journal is a hint, never the truth.** Before acting on a record a
-    machine checks that one file's real state on the remote (one stat). A
-    lost, corrupt or stale journal then costs only a full scan, never a wrong
-    change. The full pass stays as the backstop (daily or weekly), and runs
-    whenever there is doubt: a gap in a machine's sequence numbers, a
-    truncated or rotated journal, a machine offline past the retention, or a
-    generation bump after any machine's full resync.
-  - **Journals live under the crypt remote**, in a folder the filter keeps out
-    of the sync (e.g. `.foxcloud/journal/<machine>`), so names and contents are
-    encrypted: file names must not reach the server in plaintext.
-  - **Ordering uses per-machine sequence numbers**, not clocks. Records carry
-    the operation (create, modify, delete, move), path, size and mtime.
-    Modification times are only the cheap "something changed" signal.
-  - **Delivery, two ways.** A long-lived `ssh <box> 'tail -n 0 -F <journal>'`
-    is a real push with no polling: measured on the Storage Box, its restricted
-    shell has `tail` (GNU coreutils 9.4), `stat`, `dd`, `cat`, and a record
-    appended through `dd oflag=append conv=notrunc` reached a listening
-    `tail -F` in under a second, and a connection kept alive with
-    `ServerAliveInterval=30` still delivered a record after about 280 s idle
-    (longer idles and reconnects after a network change are untested).
-    Fallback when the connection is down (and for
-    the first catch-up): `stat` one stamp file that every writer touches, every
-    30 s, which was agreed as fine for the server. The stamp says "look at the
-    journals"; the journals say what changed.
-  - **Phones** only download for now, and write no journal; their changes (and
-    anything written by other tools) are still found only by the full scan.
-  - Bisync detail: after a targeted download local and remote are equal, so
-    the next bisync sees "new on both sides, identical". Deletions and moves
-    need care: only bisync can tell a delete from a conflict.
-  - Open: appending with `dd` is not atomic against two machines writing one
-    file, hence one journal file per machine; journal rotation and compaction; whether the writer records full-pass changes too
-    (from rclone's JSON log) or only file-by-file uploads.
+- **Change journal (built in a first version; checked live against the Storage
+  Box, not yet run between two real machines).** Machines tell each other what
+  they uploaded, so one learns of another's change in about a second without
+  listing the whole remote (about 4,500 folders over SFTP). Opt-in with
+  `[journal] enabled = true`; `foxcloud journal-check` tests it end to end
+  (measured here: a record written over SSH came back through `tail -F` in
+  2.5 s on Windows, including connecting).
+  - **Transport:** one shared log on the server, outside the crypt root
+    (`foxcloud-journal/journal.log`), used through the SSH shell the Storage Box
+    provides: `dd oflag=append` to write (each write under 8 KB, so two machines
+    never interleave lines), `stat` to size, and a long-lived `tail -c +N -F` to
+    follow, with keepalives and automatic reconnect that resumes from the saved
+    byte offset, so nothing written while offline is lost. No polling; the
+    30 s stamp-file stat from the first sketch turned out to be unnecessary.
+    A 280 s idle connection still delivered.
+  - **Privacy:** every line is AES-256-GCM encrypted with a key derived (HKDF)
+    from the crypt master key, so the server sees neither names nor activity.
+  - **The journal is a hint, never the truth.** Gaps are detected (a machine's
+    sequence numbers jump, its generation id changes after it lost state, a
+    line does not decrypt, the log is shorter than the saved offset) and each
+    one brings a full pass forward on every job that mirrors the remote. Records
+    are never acted on without the fetch itself checking the remote, and nothing
+    happens before a job's start-up pass is done (the start-up hold is never cut
+    short).
+  - **Writing:** after a push or bisync job uploads file by file, the applied
+    changes are recorded by a single ordered writer (paths as they appear in the
+    crypt root; for bisync only uploads and folders, since only those were
+    applied). Changes made by full passes are not journaled yet, so other
+    machines learn of those from their own periodic pass.
+  - **Reading (bisync and pull jobs):** a plainly new file is downloaded by
+    name (`--ignore-existing`, no listing); a changed file that also exists
+    locally, and every delete or move, brings a full bisync pass forward,
+    because only bisync can tell a conflict from an update. A pull job
+    downloads with `--update` and a backup folder and ignores deletes (it never
+    deletes). Folders are created. Excluded paths are skipped by the job's filter.
+  - **Not yet:** log rotation or compaction (the file grows ~100 bytes per
+    change; a reset is handled as a gap); laptops using the `mount` role
+    (rclone's directory cache could be refreshed for just the named folders
+    through its remote control, which needs `--rc` on the mount); journaling
+    full-pass changes; two real machines running it together; phones (they only
+    download for now).
 
 - **Incremental sync and shutdown guard (built; the Windows block reason and
   the real rclone calls are tested, a real shutdown and the Linux inhibitor are

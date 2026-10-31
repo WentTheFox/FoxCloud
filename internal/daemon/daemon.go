@@ -40,6 +40,12 @@ type Daemon struct {
 	// Apply carries a few file changes over to the remote without a full pass.
 	// Without it a change just triggers a pass.
 	Apply Applier
+	// JournalWrite records applied changes in the shared journal, and Fetch
+	// downloads files named by other machines' records. Without them the
+	// journal is not used.
+	JournalWrite JournalWriter
+	Fetch        Fetcher
+	journalState
 	// OnBusy is told when the daemon starts or stops having sync work in flight
 	// (a pass running, or changes noticed and not yet uploaded). The shutdown
 	// guard listens to it.
@@ -76,6 +82,11 @@ func New(jobs []config.Job, run Runner, startupDelay time.Duration) *Daemon {
 		WatchQuiet:   DefaultWatchQuiet,
 		WatchMaxWait: DefaultWatchMaxWait,
 		jobMu:        map[string]*sync.Mutex{},
+		journalState: journalState{
+			journalCh: make(chan journalWork, journalQueue),
+			incoming:  map[string]*incoming{},
+			firstPass: map[string]chan struct{}{},
+		},
 		busyJobs:     map[string]bool{},
 		startupDelay: startupDelay,
 		state:        map[string]Event{},
@@ -90,6 +101,7 @@ func New(jobs []config.Job, run Runner, startupDelay time.Duration) *Daemon {
 		}
 		d.jobs = append(d.jobs, j)
 		d.jobMu[j.Name] = &sync.Mutex{}
+		d.firstPass[j.Name] = make(chan struct{})
 		d.trig[j.Name] = make(chan struct{}, 1)
 	}
 	return d
@@ -97,6 +109,12 @@ func New(jobs []config.Job, run Runner, startupDelay time.Duration) *Daemon {
 
 // Run drives every job until ctx is cancelled.
 func (d *Daemon) Run(ctx context.Context) {
+	d.ctxMu.Lock()
+	d.ctx = ctx
+	d.ctxMu.Unlock()
+	if d.JournalWrite != nil {
+		go d.journalWorker(ctx)
+	}
 	var wg sync.WaitGroup
 	for _, j := range d.jobs {
 		wg.Add(1)
@@ -172,6 +190,7 @@ func (d *Daemon) loop(ctx context.Context, j config.Job) {
 			// After the start-up hold and a first pass (which creates the
 			// folder), so changes during the hold cannot skip it.
 			d.startWatching(ctx, j)
+			close(d.firstPass[j.Name])
 		}
 
 		var tick <-chan time.Time
@@ -305,8 +324,10 @@ func (d *Daemon) handleBatch(ctx context.Context, j config.Job, ix *delta.Index,
 		d.SyncNow(j.Name)
 	case prev.State == StateFailed || prev.State == StatePaused:
 		d.emit(prev) // a good upload does not clear an earlier failure
+		d.enqueueJournal(j, ops)
 	default:
 		d.emit(Event{Job: j.Name, State: StateSynced, Message: "uploaded " + summary(ops)})
+		d.enqueueJournal(j, ops)
 	}
 }
 

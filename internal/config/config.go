@@ -23,11 +23,12 @@ const (
 const DefaultMaxDelete = 10
 
 type Config struct {
-	Remote Remote `toml:"remote"`
-	Crypt  Crypt  `toml:"crypt"`
-	Daemon Daemon `toml:"daemon"`
-	Update Update `toml:"update"`
-	Jobs   []Job  `toml:"job"`
+	Remote  Remote  `toml:"remote"`
+	Crypt   Crypt   `toml:"crypt"`
+	Daemon  Daemon  `toml:"daemon"`
+	Update  Update  `toml:"update"`
+	Journal Journal `toml:"journal"`
+	Jobs    []Job   `toml:"job"`
 }
 
 // DefaultStartupDelay is how long the daemon holds off its first sync pass,
@@ -37,6 +38,42 @@ const DefaultStartupDelay = 2 * time.Minute
 type Daemon struct {
 	// StartupDelay is a Go duration such as "2m"; "0" turns the hold off.
 	StartupDelay string `toml:"startup_delay"`
+}
+
+// DefaultJournalPath is the shared change log, relative to the SSH login
+// folder and outside the synced tree.
+const DefaultJournalPath = "foxcloud-journal/journal.log"
+
+// Journal is the shared change log that lets machines learn of each other's
+// uploads without scanning the whole remote. Off by default, because it writes
+// an (encrypted) file to the server.
+type Journal struct {
+	Enabled bool `toml:"enabled"`
+	// Machine names this machine in the log; defaults to the host name.
+	Machine string `toml:"machine"`
+	// Path is the log on the server, relative to the SSH login folder.
+	Path string `toml:"path"`
+}
+
+// MachineName is the configured name, else the host name, as a plain word.
+func (j Journal) MachineName() string {
+	name := j.Machine
+	if name == "" {
+		name, _ = os.Hostname()
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		name = "machine"
+	}
+	return name
+}
+
+// LogPath is the configured path or the default.
+func (j Journal) LogPath() string {
+	if j.Path == "" {
+		return DefaultJournalPath
+	}
+	return j.Path
 }
 
 // Update modes.

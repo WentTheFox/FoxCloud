@@ -95,6 +95,9 @@ func run() error {
 	d.Apply = func(ctx context.Context, job string, ops delta.Ops) error {
 		return e.Apply(ctx, job, ops)
 	}
+	d.Fetch = func(ctx context.Context, job string, paths []string, overwrite bool) error {
+		return e.Fetch(ctx, job, paths, overwrite)
+	}
 	d.Mount = func(ctx context.Context, job string, onReady func()) error {
 		return e.Mount(ctx, job, onReady)
 	}
@@ -124,6 +127,26 @@ func run() error {
 				restart.Store(true)
 				cancel()
 			}, d.Logf)
+	}
+
+	if cfg.Journal.Enabled {
+		jc, err := e.JournalClient(runCtx)
+		if err != nil {
+			return err
+		}
+		jc.Logf = d.Logf
+		d.JournalWrite = func(ctx context.Context, job config.Job, ops delta.Ops) error {
+			return jc.Write(ctx, engine.JournalRecords(job, ops))
+		}
+		// Follow other machines from the start, so nothing between the
+		// start-up pass and the connection is missed; the daemon holds what it
+		// hears until each job's start-up pass is done.
+		go func() {
+			if err := jc.Run(runCtx, d.Incoming, d.JournalGap); err != nil && runCtx.Err() == nil {
+				d.Logf("journal: not following other machines: %v", err)
+			}
+		}()
+		d.Logf("journal: this machine is %q, log %s", cfg.Journal.MachineName(), cfg.Journal.LogPath())
 	}
 
 	// If the socket cannot be served (another daemon owns it, say), stop

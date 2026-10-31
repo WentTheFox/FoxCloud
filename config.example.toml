@@ -38,6 +38,15 @@ key_command = "keyring:crypt-key"
 mode = "notify"
 # auto_delay = "24h"        # minimum age of a release before auto installs it
 
+[journal]
+# Machines tell each other what they uploaded through an encrypted log on the
+# server (outside the synced tree), so another machine learns of a change in
+# about a second without listing the whole remote. Off by default because it
+# writes a file to the server; `foxcloud journal-check` tests it end to end.
+# enabled = true
+# machine = "desktop"         # this machine's name in the log; defaults to the host name
+# path = "foxcloud-journal/journal.log"   # relative to the SSH login folder
+
 # One table per job. Roles: push, pull, bisync, mount.
 [[job]]
 name = "data"

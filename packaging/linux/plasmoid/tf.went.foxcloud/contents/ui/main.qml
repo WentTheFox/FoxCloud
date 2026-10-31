@@ -86,6 +86,17 @@ PlasmoidItem {
         return "idle"
     }
 
+    // What the job does, in words, shown under its name.
+    function roleText(j) {
+        switch (j.role) {
+        case "push": return i18n("Uploads this computer's folder to the server")
+        case "pull": return i18n("Downloads from the server, never deletes here")
+        case "bisync": return i18n("Keeps this folder and the server in step")
+        case "mount": return i18n("Server files on demand")
+        default: return ""
+        }
+    }
+
     function jobText(j) {
         switch (j.state) {
         case "waiting": return i18n("Waiting for the system to settle")
@@ -213,6 +224,14 @@ PlasmoidItem {
                             Layout.fillWidth: true
                             PlasmaComponents.Label { text: modelData.job; font.bold: true }
                             PlasmaComponents.Label {
+                                visible: !!root.roleText(modelData)
+                                text: root.roleText(modelData)
+                                font: Kirigami.Theme.smallFont
+                                opacity: 0.6
+                                wrapMode: Text.Wrap
+                                Layout.fillWidth: true
+                            }
+                            PlasmaComponents.Label {
                                 text: root.jobText(modelData)
                                 opacity: 0.7
                                 color: (modelData.state === "failed" || modelData.state === "paused") ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
@@ -229,6 +248,15 @@ PlasmoidItem {
                         visible: (modelData.state === "failed" || modelData.state === "paused") && !!modelData.message
                         text: modelData.message || ""
                         color: Kirigami.Theme.negativeTextColor
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+                    PlasmaComponents.Label {
+                        visible: (modelData.conflicts || 0) > 0
+                        text: i18np("%1 file has conflicting versions (run: foxcloud conflicts %2)",
+                                    "%1 files have conflicting versions (run: foxcloud conflicts %2)",
+                                    modelData.conflicts || 0, modelData.job)
+                        color: Kirigami.Theme.neutralTextColor
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
                     }

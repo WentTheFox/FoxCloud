@@ -30,7 +30,9 @@ const (
 // the daemon itself). The daemon sends one whenever a
 // job's state changes, so clients never have to poll.
 type Event struct {
-	Job     string    `json:"job"`
+	Job string `json:"job"`
+	// Role is the job's role (push, pull, bisync, mount), filled in by the daemon.
+	Role    string    `json:"role,omitempty"`
 	State   State     `json:"state"`
 	Message string    `json:"message,omitempty"`
 	At      time.Time `json:"at"`

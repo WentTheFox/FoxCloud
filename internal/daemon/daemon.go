@@ -74,6 +74,7 @@ type Daemon struct {
 
 	mu            sync.Mutex
 	conflictCount map[string]int
+	roles         map[string]string
 	state         map[string]Event
 	subs          map[chan Event]struct{}
 	trig          map[string]chan struct{}
@@ -97,12 +98,14 @@ func New(jobs []config.Job, run Runner, startupDelay time.Duration) *Daemon {
 		busyJobs:      map[string]bool{},
 		startupDelay:  startupDelay,
 		conflictCount: map[string]int{},
+		roles:         map[string]string{},
 		state:         map[string]Event{},
 		subs:          map[chan Event]struct{}{},
 		trig:          map[string]chan struct{}{},
 		cancel:        map[string]context.CancelFunc{},
 	}
 	for _, j := range jobs {
+		d.roles[j.Name] = j.Role
 		if j.Role == config.RoleMount {
 			d.mounts = append(d.mounts, j)
 			continue
@@ -432,6 +435,7 @@ func (d *Daemon) emit(ev Event) {
 	defer d.mu.Unlock()
 	if ev.Job != "" {
 		ev.Conflicts = d.conflictCount[ev.Job]
+		ev.Role = d.roles[ev.Job]
 	}
 	d.state[ev.Job] = ev
 	for ch := range d.subs {

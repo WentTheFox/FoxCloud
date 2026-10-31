@@ -1,11 +1,14 @@
 #!/bin/sh
 # Install foxcloud and foxcloudd for the current user and enable the daemon.
-# Usage: install.sh [dir containing the built binaries]  (default: ./bin, else build)
+# Usage: install.sh [dir containing the built binaries]  (default: build from source into ./bin)
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
-src=${1:-$root/bin}
+src=${1:-}
+# With no directory given, build from the source tree so a re-run never
+# reinstalls an old build left in ./bin; a given directory is used as it is.
+[ -n "$src" ] || { src=$root/bin; rm -f "$src/foxcloud" "$src/foxcloudd" "$src/foxcloud-tray"; }
 bindir=$HOME/.local/bin
 unitdir=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
 

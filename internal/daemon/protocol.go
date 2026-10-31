@@ -41,6 +41,9 @@ type Event struct {
 	Update string `json:"update,omitempty"`
 	// Resync marks a full bisync resync: there is no progress estimate for one.
 	Resync bool `json:"resync,omitempty"`
+	// Conflicts is how many files in the job's folder have bisync conflict
+	// copies waiting for a person to choose (see `foxcloud conflicts`).
+	Conflicts int `json:"conflicts,omitempty"`
 }
 
 // Request is one line of JSON from a client.

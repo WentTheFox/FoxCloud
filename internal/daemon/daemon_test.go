@@ -459,3 +459,28 @@ func TestBusyIsReportedWhileChangesAreInFlight(t *testing.T) {
 		t.Errorf("busy = %v, transitions = %v, want [true false]", d.Busy(), transitions)
 	}
 }
+
+func TestEventsCarryTheConflictCount(t *testing.T) {
+	var n atomic.Int64
+	n.Store(2)
+	d := New(job(config.RolePush, ""), ok, 0)
+	d.Conflicts = func(string) int { return int(n.Load()) }
+	await := start(t, d)
+	if got := await(StateSynced).Conflicts; got != 2 {
+		t.Fatalf("conflicts after the pass = %d, want 2", got)
+	}
+
+	// A recount that finds a different number re-announces the job's state.
+	_, events, unsub := d.Subscribe()
+	defer unsub()
+	n.Store(0)
+	d.refreshConflicts(d.jobs[0])
+	select {
+	case ev := <-events:
+		if ev.Conflicts != 0 || ev.State != StateSynced {
+			t.Errorf("event after resolving = %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no event after the count changed")
+	}
+}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/WentTheFox/FoxCloud/internal/app"
 	"github.com/WentTheFox/FoxCloud/internal/config"
+	"github.com/WentTheFox/FoxCloud/internal/conflict"
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
 	"github.com/WentTheFox/FoxCloud/internal/delta"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
@@ -91,6 +92,12 @@ func run() error {
 		} else {
 			guard.Release()
 		}
+	}
+	d.Conflicts = func(job string) int {
+		if j, ok := cfg.Job(job); ok {
+			return conflict.Count(j)
+		}
+		return 0
 	}
 	d.Apply = func(ctx context.Context, job string, ops delta.Ops) error {
 		return e.Apply(ctx, job, ops)

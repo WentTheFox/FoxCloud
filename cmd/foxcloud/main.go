@@ -29,6 +29,7 @@ const usage = `usage: foxcloud [-config path] <command> [args]
 commands:
   run [-dry-run] [-force] <job>   run one sync pass
   status [job]                    show last success, failures and pauses
+  conflicts [list|diff|keep|clean] bisync conflict copies: list, compare, resolve (conflicts -h)
   usage                           show how full the remote storage is
   check-names <job>               list names too long to upload once encrypted
   verify [-n 25] [-max-size 200M] <job>
@@ -81,7 +82,7 @@ func run() error {
 		return daemonCmd(flag.Arg(0), flag.Args()[1:])
 	}
 
-	_, e, err := app.Load(*configPath, os.Stderr)
+	cfg, e, err := app.Load(*configPath, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -100,6 +101,8 @@ func run() error {
 			return errors.New("run needs exactly one job name")
 		}
 		return e.Run(ctx, fs.Arg(0), engine.RunOptions{DryRun: *dry, Force: *force})
+	case "conflicts":
+		return conflictsCmd(cfg, args)
 	case "status":
 		return status(e, args)
 	case "usage":

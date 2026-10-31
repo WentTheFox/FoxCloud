@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/WentTheFox/FoxCloud/internal/config"
+	"github.com/WentTheFox/FoxCloud/internal/conflict"
 	"github.com/WentTheFox/FoxCloud/internal/delta"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
 	"github.com/WentTheFox/FoxCloud/internal/filter"
@@ -50,6 +53,9 @@ type Daemon struct {
 	// (a pass running, or changes noticed and not yet uploaded). The shutdown
 	// guard listens to it.
 	OnBusy func(busy bool)
+	// Conflicts counts a job's files that have conflict copies. Without it no
+	// count is published.
+	Conflicts func(job string) int
 	// Mount runs mount jobs. Without it they are left alone.
 	Mount  Mounter
 	mounts []config.Job
@@ -66,11 +72,12 @@ type Daemon struct {
 	startupDelay time.Duration
 	jobs         []config.Job
 
-	mu     sync.Mutex
-	state  map[string]Event
-	subs   map[chan Event]struct{}
-	trig   map[string]chan struct{}
-	cancel map[string]context.CancelFunc
+	mu            sync.Mutex
+	conflictCount map[string]int
+	state         map[string]Event
+	subs          map[chan Event]struct{}
+	trig          map[string]chan struct{}
+	cancel        map[string]context.CancelFunc
 }
 
 // New creates a daemon for the jobs it can run (mount jobs are not synced).
@@ -87,12 +94,13 @@ func New(jobs []config.Job, run Runner, startupDelay time.Duration) *Daemon {
 			incoming:  map[string]*incoming{},
 			firstPass: map[string]chan struct{}{},
 		},
-		busyJobs:     map[string]bool{},
-		startupDelay: startupDelay,
-		state:        map[string]Event{},
-		subs:         map[chan Event]struct{}{},
-		trig:         map[string]chan struct{}{},
-		cancel:       map[string]context.CancelFunc{},
+		busyJobs:      map[string]bool{},
+		startupDelay:  startupDelay,
+		conflictCount: map[string]int{},
+		state:         map[string]Event{},
+		subs:          map[chan Event]struct{}{},
+		trig:          map[string]chan struct{}{},
+		cancel:        map[string]context.CancelFunc{},
 	}
 	for _, j := range jobs {
 		if j.Role == config.RoleMount {
@@ -170,6 +178,7 @@ func (d *Daemon) mountLoop(ctx context.Context, j config.Job) {
 // loop is one job's lifetime: hold, then pass, wait, pass, wait... Waiting is
 // on a timer or a trigger, never a poll.
 func (d *Daemon) loop(ctx context.Context, j config.Job) {
+	d.countConflicts(j)
 	if d.startupDelay > 0 {
 		until := time.Now().Add(d.startupDelay)
 		d.emit(Event{Job: j.Name, State: StateWaiting, Until: &until,
@@ -287,6 +296,9 @@ func (d *Daemon) startWatching(ctx context.Context, j config.Job) {
 // handleBatch uploads one burst of changes, or asks for a full pass when it
 // cannot do that safely.
 func (d *Daemon) handleBatch(ctx context.Context, j config.Job, ix *delta.Index, b watch.Batch) {
+	if d.Conflicts != nil && slices.ContainsFunc(b.Paths, func(p string) bool { return conflict.IsCopyName(filepath.Base(p)) }) {
+		defer d.refreshConflicts(j)
+	}
 	if ix == nil || d.Apply == nil {
 		d.SyncNow(j.Name)
 		return
@@ -393,6 +405,7 @@ func (d *Daemon) pass(parent context.Context, j config.Job) {
 		d.emit(Event{Job: j.Name, State: next})
 	})
 
+	d.countConflicts(j) // before the outcome event below, which carries the count
 	var se *engine.SyncError
 	switch {
 	case err == nil:
@@ -417,12 +430,43 @@ func (d *Daemon) emit(ev Event) {
 	ev.At = time.Now()
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if ev.Job != "" {
+		ev.Conflicts = d.conflictCount[ev.Job]
+	}
 	d.state[ev.Job] = ev
 	for ch := range d.subs {
 		select {
 		case ch <- ev:
 		default:
 		}
+	}
+}
+
+// countConflicts records the job's conflict count without announcing it: the
+// next event for the job carries it.
+func (d *Daemon) countConflicts(j config.Job) (changed bool) {
+	if d.Conflicts == nil {
+		return false
+	}
+	n := d.Conflicts(j.Name)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	changed = d.conflictCount[j.Name] != n
+	d.conflictCount[j.Name] = n
+	return changed
+}
+
+// refreshConflicts recounts and, if the number moved, tells subscribers by
+// re-sending the job's current state with the new count.
+func (d *Daemon) refreshConflicts(j config.Job) {
+	if !d.countConflicts(j) {
+		return
+	}
+	d.mu.Lock()
+	ev, ok := d.state[j.Name]
+	d.mu.Unlock()
+	if ok {
+		d.emit(ev)
 	}
 }
 

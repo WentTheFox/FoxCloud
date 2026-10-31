@@ -28,6 +28,20 @@ var glyph = map[string]string{"dark": "#e8e8ef", "light": "#2b2b33"}
 
 const size = 64
 
+// icoFrames are the sizes Windows picks from: 16 px at 100% display scaling, 20
+// at 125%, 24 at 150%, 32 at 200%. Each is drawn at its own size, not scaled
+// down from a big one, with a stroke (in the SVG's 24-unit space) heavy enough
+// to stay about 2 px wide at the small sizes.
+// icoCrop is how many of the SVG's 24 units to trim off each edge. Lucide
+// leaves a margin that is a fifth of a 16 px tray icon; the artwork stays
+// inside 2..22, so one unit is safe to lose.
+const icoCrop = 0.5
+
+var icoFrames = []struct {
+	size   int
+	stroke string
+}{{16, "2.1"}, {20, "2.3"}, {24, "2.4"}, {32, "2.3"}, {48, "2.3"}, {64, "2.3"}}
+
 // The PNGs are scaled down by the Linux tray and the Plasma widget to about
 // 22 px, where Lucide's stroke of 2 (8% of the width) blurs into faint lines
 // beside the panel's pixel-aligned icons. They are drawn heavier. The ICO is a
@@ -49,22 +63,26 @@ func main() {
 		svgs, _ := filepath.Glob(filepath.Join(root, "assets", "status", theme, "*.svg"))
 		for _, svg := range svgs {
 			name := strings.TrimSuffix(filepath.Base(svg), ".svg")
-			pngBytes, err := render(svg, color, pngStroke)
+			pngBytes, err := render(svg, color, pngStroke, size, 0)
 			if err != nil {
 				fatal(fmt.Errorf("%s: %w", svg, err))
 			}
-			icoBytes, err := render(svg, color, pngStroke)
-			if err != nil {
-				fatal(fmt.Errorf("%s: %w", svg, err))
+			var frames [][]byte
+			for _, f := range icoFrames {
+				b, err := render(svg, color, f.stroke, f.size, icoCrop)
+				if err != nil {
+					fatal(fmt.Errorf("%s: %w", svg, err))
+				}
+				frames = append(frames, b)
 			}
 			base := filepath.Join(out, theme+"-"+name)
 			must(os.WriteFile(base+".png", pngBytes, 0o644))
-			must(os.WriteFile(base+".ico", ico(icoBytes), 0o644))
+			must(os.WriteFile(base+".ico", ico(frames), 0o644))
 		}
 	}
 }
 
-func render(path, color, stroke string) ([]byte, error) {
+func render(path, color, stroke string, size int, crop float64) ([]byte, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -75,7 +93,10 @@ func render(path, color, stroke string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	icon.SetTarget(0, 0, size, size)
+	// Draw the 24-unit artwork larger than the image, shifted so that crop units
+	// fall off each edge.
+	scale := float64(size) / (24 - 2*crop)
+	icon.SetTarget(-crop*scale, -crop*scale, 24*scale, 24*scale)
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
 	icon.Draw(rasterx.NewDasher(size, size, rasterx.NewScannerGV(size, size, img, img.Bounds())), 1)
 	var buf bytes.Buffer
@@ -85,15 +106,27 @@ func render(path, color, stroke string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// ico wraps one PNG in an ICO container, which Windows has accepted since Vista.
-func ico(pngBytes []byte) []byte {
+// ico wraps PNG frames in an ICO container, which Windows has accepted since
+// Vista. The frames are in icoFrames order.
+func ico(frames [][]byte) []byte {
 	var b bytes.Buffer
-	binary.Write(&b, binary.LittleEndian, []uint16{0, 1, 1}) // reserved, type icon, count
-	b.Write([]byte{size, size, 0, 0})                        // width, height, palette, reserved
-	binary.Write(&b, binary.LittleEndian, []uint16{1, 32})   // planes, bits per pixel
-	binary.Write(&b, binary.LittleEndian, uint32(len(pngBytes)))
-	binary.Write(&b, binary.LittleEndian, uint32(22)) // offset: 6 header + 16 entry
-	b.Write(pngBytes)
+	binary.Write(&b, binary.LittleEndian, []uint16{0, 1, uint16(len(frames))}) // reserved, type icon, count
+	off := 6 + 16*len(frames)
+	for i, f := range frames {
+		sz := icoFrames[i].size
+		dim := byte(sz)
+		if sz >= 256 {
+			dim = 0
+		}
+		b.Write([]byte{dim, dim, 0, 0})                        // width, height, palette, reserved
+		binary.Write(&b, binary.LittleEndian, []uint16{1, 32}) // planes, bits per pixel
+		binary.Write(&b, binary.LittleEndian, uint32(len(f)))
+		binary.Write(&b, binary.LittleEndian, uint32(off))
+		off += len(f)
+	}
+	for _, f := range frames {
+		b.Write(f)
+	}
 	return b.Bytes()
 }
 

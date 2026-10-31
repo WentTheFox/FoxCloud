@@ -114,9 +114,10 @@ PlasmoidItem {
         if (has("failed")) return "failed"
         if (has("paused")) return "paused"
         const up = has("uploading"), down = has("downloading")
-        if (has("syncing") || has("checking") || (up && down)) return "syncing"
+        if (has("syncing") || (up && down)) return "syncing"
         if (up) return "uploading"
         if (down) return "downloading"
+        if (has("checking")) return "checking"   // comparing both sides; no arrow is lit yet
         if (has("waiting")) return "idle"
         if (has("synced") || has("mounted")) return "synced"
         return "idle"
@@ -217,16 +218,14 @@ PlasmoidItem {
         }
     }
 
-    // Every busy job is still comparing both sides, so nothing is moving yet.
-    readonly property bool onlyChecking: has("checking") && !has("syncing") && !has("uploading") && !has("downloading")
-
     readonly property string stateText: {
         if (failed) return i18n("foxcloud is not installed")
         if (!view.running) return i18n("Service not running")
         switch (iconName) {
         case "failed": return i18n("Sync failed")
         case "paused": return i18n("Sync paused")
-        case "syncing": return onlyChecking ? i18n("Checking for changes…") : i18n("Syncing…")
+        case "checking": return i18n("Checking for changes…")
+        case "syncing": return i18n("Syncing…")
         case "uploading": return i18n("Uploading…")
         case "downloading": return i18n("Downloading…")
         case "synced": return i18n("Up to date")
@@ -238,7 +237,7 @@ PlasmoidItem {
     readonly property bool needsAttention: iconName === "failed" || iconName === "paused"
     // A stopped service is shown steadily (amber icon), not animated.
     readonly property bool offline: !view.running && !failed
-    readonly property bool active: iconName === "syncing" || iconName === "uploading" || iconName === "downloading"
+    readonly property bool active: iconName === "syncing" || iconName === "uploading" || iconName === "downloading" || iconName === "checking"
 
     Plasmoid.icon: "folder-cloud"
     toolTipMainText: i18n("FoxCloud")

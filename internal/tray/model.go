@@ -20,9 +20,12 @@ const (
 	IconUploading   Icon = "uploading"
 	IconDownloading Icon = "downloading"
 	IconSyncing     Icon = "syncing"
-	IconSynced      Icon = "synced"
-	IconFailed      Icon = "failed"
-	IconPaused      Icon = "paused"
+	// IconChecking is the syncing icon with both arrows faded: a pass is
+	// comparing both sides and no file is moving yet.
+	IconChecking Icon = "checking"
+	IconSynced   Icon = "synced"
+	IconFailed   Icon = "failed"
+	IconPaused   Icon = "paused"
 	// IconOffline is the amber icon for "the daemon is not running". Only a
 	// client can know that, so it never comes from an event.
 	IconOffline Icon = "offline"
@@ -115,7 +118,7 @@ func (m *Model) Icon() Icon {
 	if m.Offline {
 		return IconOffline
 	}
-	var failed, paused, up, down, both, waiting, synced bool
+	var failed, paused, up, down, both, checking, waiting, synced bool
 	for _, ev := range m.jobs {
 		switch ev.State {
 		case daemon.StateFailed:
@@ -126,8 +129,10 @@ func (m *Model) Icon() Icon {
 			up = true
 		case daemon.StateDownloading:
 			down = true
-		case daemon.StateSyncing, daemon.StateChecking:
-			both = true // checking has no direction yet, so it shows the general activity icon
+		case daemon.StateSyncing:
+			both = true
+		case daemon.StateChecking:
+			checking = true
 		case daemon.StateWaiting:
 			waiting = true
 		case daemon.StateSynced, daemon.StateMounted:
@@ -145,6 +150,8 @@ func (m *Model) Icon() Icon {
 		return IconUploading
 	case down:
 		return IconDownloading
+	case checking:
+		return IconChecking // nothing is moving yet, so no arrow is lit
 	case waiting:
 		return IconIdle // waiting on purpose: the idle icon, the text says why
 	case synced:

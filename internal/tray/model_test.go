@@ -23,7 +23,8 @@ func TestIconPriority(t *testing.T) {
 		{"downloading", []daemon.Event{ev("a", daemon.StateDownloading)}, IconDownloading},
 		{"two directions at once", []daemon.Event{ev("a", daemon.StateUploading), ev("b", daemon.StateDownloading)}, IconSyncing},
 		{"bisync both", []daemon.Event{ev("a", daemon.StateSyncing)}, IconSyncing},
-		{"checking has no direction yet", []daemon.Event{ev("a", daemon.StateChecking)}, IconSyncing},
+		{"checking has no direction yet", []daemon.Event{ev("a", daemon.StateChecking)}, IconChecking},
+		{"moving data outranks checking", []daemon.Event{ev("a", daemon.StateChecking), ev("b", daemon.StateUploading)}, IconUploading},
 		{"paused beats activity", []daemon.Event{ev("a", daemon.StateUploading), ev("b", daemon.StatePaused)}, IconPaused},
 		{"failed beats everything", []daemon.Event{ev("a", daemon.StatePaused), ev("b", daemon.StateFailed), ev("c", daemon.StateSyncing)}, IconFailed},
 	}

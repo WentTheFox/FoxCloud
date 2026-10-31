@@ -269,7 +269,8 @@ docs/               setup guides
   off (`Daemon.Exclusive`) just for the file swap, logs it and exits with
   status 75. The service manager restarts it: systemd's `Restart=on-failure`
   does; the Windows task's restart settings should (a non-zero exit is a
-  failure) but that is untested. A failed check or install changes nothing and
+  failure) but that is untested. On Linux a throwaway user unit with
+  `Restart=on-failure` restarted a process that exited 75, as expected. A failed check or install changes nothing and
   is tried again at the next check. The trust chain is weak (no detached
   release signature; see CI builds), which is why `auto` is opt-in. Open:
   - Mounts are interrupted by the restart (rclone is stopped with the daemon).
@@ -280,7 +281,9 @@ docs/               setup guides
   - Where a package manager is used (winget, Homebrew, an AUR package), let it
     update and skip the built-in updater.
 
-- **Tray (built, untested on a real desktop).** `foxcloud-tray` (Windows and
+- **Tray (built; on Plasma 6 it registers with the StatusNotifier and shows
+  the offline state, the live states are untested).** On Plasma the widget is
+  the status icon and `install.sh` skips the tray's autostart. `foxcloud-tray` (Windows and
   Linux; macOS needs cgo and is deferred) shows one summary icon (failed >
   paused > activity > waiting/idle > synced), a line per job (click to sync
   now), the "service not running" state with the amber icon, and the update
@@ -297,7 +300,10 @@ docs/               setup guides
   `foxcloud-tray` when the release has it. Open: restarting the daemon (and the
   tray) after an install, which is the auto-update mode below.
 
-- **Plasma 6 widget (written, never loaded into a real Plasma).**
+- **Plasma 6 widget (loads in Plasma 6 and sits in the system tray; the live
+  job cards are untested).** It is a system-tray applet: enable it under
+  System Tray settings > Entries. A stopped service shows a steady amber
+  icon; only a failed or paused sync pulses.
   `packaging/linux/plasmoid/tf.went.foxcloud`, ported from the old repo's
   plasmoid and installed by `install.sh` with `kpackagetool6`. QML cannot open
   a unix socket, so it uses the old widget's event-driven trick: it runs
@@ -315,5 +321,7 @@ docs/               setup guides
   journal) and `install.sh`. Windows is done as a logon scheduled task, not a
   service (`packaging/windows/install.ps1`): the crypt key sits in the user's
   credential store, which a service account cannot read. The daemon takes
-  `-logfile` (rotated at 5 MiB). Neither wrapper has been run for real yet.
+  `-logfile` (rotated at 5 MiB). The Linux unit is installed and verified (`systemd-analyze verify`; the
+  boot hold returns `running` on a live system); the daemon has run under
+  neither wrapper against the real box yet.
   Linux packaging now has the unit, the tray autostart and the widget.

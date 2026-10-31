@@ -132,10 +132,17 @@ func TestMapDrive(t *testing.T) {
 }
 
 func TestDefaultPathFollowsTheEnvFile(t *testing.T) {
-	cfgDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfgDir)
-	t.Setenv("HOME", cfgDir)
+	// Point every OS's notion of the config folder at a temp dir, then ask Go
+	// where that is.
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("HOME", home)
+	t.Setenv("AppData", home)
 	t.Setenv("FOXCLOUD_CONFIG", "")
+	cfgDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Skip(err)
+	}
 	dir := filepath.Join(cfgDir, "foxcloud")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)

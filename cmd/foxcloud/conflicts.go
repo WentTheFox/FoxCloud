@@ -19,7 +19,7 @@ import (
 const conflictsUsage = `usage:
   foxcloud conflicts [job]                       list files that have bisync conflict copies
   foxcloud conflicts diff <job> <path>           compare a file with its conflict copies
-  foxcloud conflicts keep <job> <path> <choice>  choice: original, both, or a copy's number (1 for .conflict1)
+  foxcloud conflicts keep <job> <path> <choice>  choice: original, both, trash, or a copy's number (1 for .conflict1)
   foxcloud conflicts clean [job]                 archive conflict copies identical to their original
   foxcloud conflicts resolve [job]               go through the conflicts one by one, asking what to keep
 
@@ -101,10 +101,12 @@ func conflictsCmd(cfg *config.Config, args []string) error {
 			done, err = r.KeepOriginal(c)
 		case "both":
 			done, err = r.KeepBoth(c)
+		case "trash":
+			done, err = r.TrashCopies(c)
 		default:
 			n, perr := strconv.Atoi(choice)
 			if perr != nil {
-				return fmt.Errorf("choice must be original, both or a number, not %q", choice)
+				return fmt.Errorf("choice must be original, both, trash or a number, not %q", choice)
 			}
 			done, err = r.KeepVariant(c, n)
 		}
@@ -264,7 +266,7 @@ loop:
 			fmt.Fprintf(out, "\n[%s %d/%d] %s\n", name, i+1, len(cs), c.Original.Path)
 			printVersions(out, res.Root, c)
 			for {
-				ans, err := ask("Keep: (o)riginal, (b)oth, copy number" + diffHint(c) + ", (s)kip, (q)uit > ")
+				ans, err := ask("Keep: (o)riginal, (b)oth, copy number" + diffHint(c) + ", (t)rash the copies, (s)kip, (q)uit > ")
 				if err != nil {
 					left += len(cs) - i
 					break loop
@@ -284,6 +286,8 @@ loop:
 					done, aerr = res.KeepOriginal(c)
 				case ans == "b":
 					done, aerr = res.KeepBoth(c)
+				case ans == "t":
+					done, aerr = res.TrashCopies(c)
 				default:
 					n, perr := strconv.Atoi(ans)
 					if perr != nil {

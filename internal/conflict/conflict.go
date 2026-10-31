@@ -171,6 +171,8 @@ type Resolver struct {
 	Archive string
 	// Now is the clock; the default is time.Now.
 	Now func() time.Time
+	// Trash puts a file in the system trash; the default is MoveToTrash.
+	Trash func(path string) error
 }
 
 func (r *Resolver) abs(rel string) (string, error) {
@@ -262,6 +264,27 @@ func (r *Resolver) KeepVariant(c Conflict, n int) ([]string, error) {
 			return done, err
 		}
 		done = append(done, fmt.Sprintf("archived %s -> %s", v.Path, dst))
+	}
+	return done, nil
+}
+
+// TrashCopies moves every conflict copy to the system trash and leaves the
+// original (if there is one) alone. The copies can be restored from there.
+func (r *Resolver) TrashCopies(c Conflict) ([]string, error) {
+	trash := r.Trash
+	if trash == nil {
+		trash = MoveToTrash
+	}
+	var done []string
+	for _, v := range c.Variants {
+		p, err := r.abs(v.Path)
+		if err != nil {
+			return done, err
+		}
+		if err := trash(p); err != nil {
+			return done, err
+		}
+		done = append(done, fmt.Sprintf("trashed %s", v.Path))
 	}
 	return done, nil
 }

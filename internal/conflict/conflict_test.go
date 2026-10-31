@@ -1,6 +1,7 @@
 package conflict
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -192,5 +193,52 @@ func TestSameContent(t *testing.T) {
 	}
 	if same, _ := SameContent(filepath.Join(root, "a"), filepath.Join(root, "c")); same {
 		t.Error("a,c differ in the last byte")
+	}
+}
+
+func TestTrashCopiesLeavesTheOriginalAndSendsCopiesToTheTrash(t *testing.T) {
+	r, root := fixture(t)
+	var trashed []string
+	r.Trash = func(p string) error {
+		trashed = append(trashed, filepath.ToSlash(strings.TrimPrefix(p, root)))
+		return os.Remove(p) // stands in for the trash
+	}
+	cs, _ := Scan(root, nil)
+	c, _ := Find(cs, "docs/a.txt")
+	done, err := r.TrashCopies(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(done) != 2 || len(trashed) != 2 || trashed[0] != "/docs/a.txt.conflict1" {
+		t.Errorf("done %v, trashed %v", done, trashed)
+	}
+	if read(t, root, "docs/a.txt") != "mine" {
+		t.Error("the original must stay")
+	}
+}
+
+func TestTrashCopiesWorksWhenTheOriginalIsGone(t *testing.T) {
+	r, root := fixture(t)
+	r.Trash = os.Remove
+	cs, _ := Scan(root, nil)
+	c, _ := Find(cs, "gone.txt")
+	if _, err := r.TrashCopies(c); err != nil {
+		t.Fatal(err)
+	}
+	if exists(root, "gone.txt.conflict1") {
+		t.Error("the orphaned copy should be gone")
+	}
+}
+
+func TestTrashFailureStopsAndReports(t *testing.T) {
+	r, root := fixture(t)
+	r.Trash = func(string) error { return errors.New("no trash here") }
+	cs, _ := Scan(root, nil)
+	c, _ := Find(cs, "docs/a.txt")
+	if _, err := r.TrashCopies(c); err == nil {
+		t.Error("expected the trash error")
+	}
+	if !exists(root, "docs/a.txt.conflict1") {
+		t.Error("a failed trash must not lose the file")
 	}
 }

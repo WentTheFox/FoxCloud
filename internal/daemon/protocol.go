@@ -17,6 +17,7 @@ type State string
 const (
 	StateWaiting     State = "waiting" // holding off after start-up; shown with the idle icon
 	StateIdle        State = "idle"
+	StateChecking    State = "checking" // a pass is comparing both sides; nothing is moving yet
 	StateUploading   State = "uploading"
 	StateDownloading State = "downloading"
 	StateSyncing     State = "syncing" // both directions

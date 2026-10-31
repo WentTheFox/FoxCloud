@@ -94,7 +94,7 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 	}
 	args, err := rclone.Args(job, rclone.Options{
 		DryRun: opts.DryRun, Force: opts.Force, Resync: resync, Now: e.now(),
-		JSONLog: (opts.OnDirection != nil && job.Role == config.RoleBisync) || (opts.OnFile != nil && !opts.DryRun),
+		JSONLog: !opts.DryRun && (opts.OnDirection != nil || opts.OnFile != nil),
 	})
 	if err != nil {
 		return err
@@ -105,22 +105,36 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 	st.LastAttempt = e.now()
 	var onRec func(rclone.LogRecord)
 	var tracker *rclone.FileTracker
-	if opts.OnFile != nil && !opts.DryRun {
-		start := rclone.Upload // push, and bisync until it says otherwise
-		if job.Role == config.RolePull {
-			start = rclone.Download
-		}
-		tracker = rclone.NewFileTracker(start)
+	roleWay := rclone.Upload // push; a pull downloads
+	if job.Role == config.RolePull {
+		roleWay = rclone.Download
 	}
-	if tracker != nil || (opts.OnDirection != nil && job.Role == config.RoleBisync) {
+	if opts.OnFile != nil && !opts.DryRun {
+		tracker = rclone.NewFileTracker(roleWay) // bisync is corrected by its own announcements
+	}
+	if !opts.DryRun && (tracker != nil || opts.OnDirection != nil) {
+		// A push or pull has one direction, known from the start; what it does
+		// not know is when it stops scanning and starts moving data. The first
+		// stats block showing a transfer, or the first finished file, says so.
+		started := job.Role == config.RoleBisync
+		work := func() {
+			if !started && opts.OnDirection != nil {
+				started = true
+				opts.OnDirection(roleWay)
+			}
+		}
 		onRec = func(r rclone.LogRecord) {
 			if opts.OnDirection != nil && job.Role == config.RoleBisync {
 				if d, ok := rclone.BisyncDirection(r.Msg); ok {
 					opts.OnDirection(d)
 				}
 			}
+			if r.Working {
+				work()
+			}
 			if tracker != nil {
 				if ev, ok := tracker.Feed(r); ok {
+					work()
 					opts.OnFile(ev)
 				}
 			}

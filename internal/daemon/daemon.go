@@ -435,16 +435,15 @@ func (d *Daemon) pass(parent context.Context, j config.Job) {
 		d.mu.Unlock()
 	}()
 
+	// A pass starts by listing and comparing, which can take a while on a big
+	// folder; it is "uploading" or "downloading" only once data moves, which
+	// the runner reports through onDirection.
 	active := activeState(j.Role)
-	d.emit(Event{Job: j.Name, State: active})
+	d.emit(Event{Job: j.Name, State: StateChecking, Message: "checking for changes"})
 	err := d.run(ctx, j.Name, func() {
 		d.emit(Event{Job: j.Name, State: active, Resync: true,
 			Message: "full resync: there is no progress estimate for this run"})
 	}, func(dir rclone.Direction) {
-		// Only bisync reports a direction; push and pull keep their fixed one.
-		if j.Role != config.RoleBisync {
-			return
-		}
 		next := StateUploading
 		if dir == rclone.Download {
 			next = StateDownloading

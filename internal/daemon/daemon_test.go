@@ -110,22 +110,65 @@ func TestIntervalRepeats(t *testing.T) {
 	}
 }
 
-func TestActiveStateFollowsTheRole(t *testing.T) {
-	for role, want := range map[string]State{
-		config.RolePush: StateUploading, config.RolePull: StateDownloading, config.RoleBisync: StateSyncing,
-	} {
+func TestAPassStartsCheckingNotTransferring(t *testing.T) {
+	for _, role := range []string{config.RolePush, config.RolePull, config.RoleBisync} {
 		release := make(chan struct{})
 		d := New(job(role, ""), func(ctx context.Context, _ string, _ func(), _ func(rclone.Direction)) error {
 			<-release
 			return nil
 		}, 0)
 		await := start(t, d)
-		await(want)
+		if ev := await(StateChecking); ev.Message == "" {
+			t.Errorf("%s: the checking state should say what it is doing", role)
+		}
 		close(release)
 		await(StateSynced)
 	}
 }
 
+func TestTransferringStartsWhenTheRunnerReportsIt(t *testing.T) {
+	for role, dir := range map[string]rclone.Direction{
+		config.RolePush: rclone.Upload, config.RolePull: rclone.Download,
+	} {
+		want := map[rclone.Direction]State{rclone.Upload: StateUploading, rclone.Download: StateDownloading}[dir]
+		reported, release := make(chan struct{}), make(chan struct{})
+		d := New(job(role, ""), func(_ context.Context, _ string, _ func(), onDir func(rclone.Direction)) error {
+			onDir(dir)
+			close(reported)
+			<-release
+			return nil
+		}, 0)
+		await := start(t, d)
+		await(StateChecking)
+		await(want)
+		<-reported
+		close(release)
+		await(StateSynced)
+	}
+}
+
+func TestAPassWithNothingToTransferNeverSaysUploading(t *testing.T) {
+	d := New(job(config.RolePush, ""), ok, 0)
+	_, events, unsub := d.Subscribe()
+	defer unsub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev := <-events:
+			if ev.State == StateUploading {
+				t.Fatal("a pass that moved nothing reported uploading")
+			}
+			if ev.State == StateSynced {
+				return
+			}
+		case <-deadline:
+			t.Fatal("no synced event")
+		}
+	}
+}
 func TestFailureStates(t *testing.T) {
 	tests := map[string]struct {
 		err  error
@@ -226,16 +269,6 @@ func TestBisyncDirectionFollowsRclone(t *testing.T) {
 	await(StateUploading)
 }
 
-func TestPushIgnoresReportedDirection(t *testing.T) {
-	d := New(job(config.RolePush, ""), func(_ context.Context, _ string, _ func(), onDir func(rclone.Direction)) error {
-		onDir(rclone.Download)
-		return nil
-	}, 0)
-	await := start(t, d)
-	await(StateUploading)
-	await(StateSynced) // a download event in between would have been skipped past
-}
-
 func TestWatchedPushJobSyncsAfterChange(t *testing.T) {
 	dir := t.TempDir()
 	var passes atomic.Int32
@@ -332,7 +365,7 @@ func TestExclusiveWaitsForRunningPassesAndBlocksNewOnes(t *testing.T) {
 		return nil
 	}, 0)
 	await := start(t, d)
-	await(StateUploading)
+	await(StateChecking)
 
 	entered := make(chan struct{})
 	go d.Exclusive(func() error {

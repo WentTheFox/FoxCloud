@@ -126,8 +126,8 @@ func (m *Model) Icon() Icon {
 			up = true
 		case daemon.StateDownloading:
 			down = true
-		case daemon.StateSyncing:
-			both = true
+		case daemon.StateSyncing, daemon.StateChecking:
+			both = true // checking has no direction yet, so it shows the general activity icon
 		case daemon.StateWaiting:
 			waiting = true
 		case daemon.StateSynced, daemon.StateMounted:
@@ -183,6 +183,8 @@ func describe(ev daemon.Event) string {
 			s += " (until " + ev.Until.Local().Format(time.TimeOnly) + ")"
 		}
 		return s
+	case daemon.StateChecking:
+		return "checking for changes"
 	case daemon.StateFailed, daemon.StatePaused:
 		if ev.Message != "" {
 			s += ": " + ev.Message

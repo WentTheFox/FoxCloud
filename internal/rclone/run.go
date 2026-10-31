@@ -69,10 +69,15 @@ func RunLog(ctx context.Context, bin string, args, env []string, out io.Writer, 
 	}
 	var tail tailBuffer
 	w := io.Writer(io.MultiWriter(out, &tail))
+	var jl *jsonLog
 	if onRec != nil {
-		w = &jsonLog{out: w, onRec: onRec}
+		jl = &jsonLog{out: w, onRec: onRec}
+		w = jl
 	}
 	cmd.Stdout, cmd.Stderr = w, w
 	err = cmd.Run()
+	if jl != nil {
+		jl.flush()
+	}
 	return string(tail.b), err
 }

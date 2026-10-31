@@ -24,7 +24,14 @@ type Options struct {
 func Args(j config.Job, o Options) ([]string, error) {
 	remote := CryptRemote(j.RemotePath)
 
-	common := []string{"--create-empty-src-dirs", "--stats", "1m", "-v"}
+	// With the JSON log the stats come every couple of seconds, which is how a
+	// pass notices that it has started transferring; the log still shows them
+	// once a minute (see jsonLog).
+	stats := "1m"
+	if o.JSONLog {
+		stats = "2s"
+	}
+	common := []string{"--create-empty-src-dirs", "--stats", stats, "-v"}
 	if j.FilterFile != "" {
 		// Bisync's own flag also records the file's checksum, so a change is
 		// noticed instead of silently making the two sides disagree.

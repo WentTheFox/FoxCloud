@@ -1,6 +1,7 @@
 package rclone
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -38,5 +39,31 @@ func TestJSONLogRendersPlainText(t *testing.T) {
 	}
 	if len(msgs) != 1 {
 		t.Errorf("onMsg calls = %d, want 1", len(msgs))
+	}
+}
+
+func TestStatsBlocksTellScanningFromTransferring(t *testing.T) {
+	var out bytes.Buffer
+	var got []LogRecord
+	j := &jsonLog{out: &out, onRec: func(r LogRecord) { got = append(got, r) }}
+	for _, line := range []string{
+		`{"level":"info","msg":"\nTransferred: 0 B / 0 B","stats":{"bytes":0,"transfers":0,"transferring":[]}}`,
+		`{"level":"info","msg":"\nTransferred: 1 MiB / 3 MiB","stats":{"bytes":1048576,"transfers":3,"transferring":[{"name":"big.bin"}]}}`,
+		`{"level":"info","msg":"\nTransferred: 3 MiB / 3 MiB","stats":{"bytes":3145728,"transfers":4,"transferring":[]}}`,
+		`{"level":"info","object":"a.txt","msg":"Copied (new)"}`,
+	} {
+		j.Write([]byte(line + "\n"))
+	}
+	if len(got) != 4 || got[0].Working || !got[1].Working || !got[2].Working || got[3].Stats {
+		t.Fatalf("records = %+v", got)
+	}
+	// A burst of stats blocks shows in the log only as the newest one, written
+	// when the run ends; ordinary lines are not held back.
+	if s := out.String(); !strings.Contains(s, "Copied (new)") || strings.Contains(s, "Transferred") {
+		t.Fatalf("log before the end:\n%s", s)
+	}
+	j.flush()
+	if s := out.String(); strings.Count(s, "Transferred") != 1 || !strings.Contains(s, "3 MiB / 3 MiB") {
+		t.Fatalf("log after the end:\n%s", s)
 	}
 }

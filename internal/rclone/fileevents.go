@@ -13,6 +13,10 @@ const (
 // LogRecord is one of rclone's --use-json-log lines.
 type LogRecord struct {
 	Level, Object, Msg string
+	// Stats marks one of rclone's periodic stats blocks, and Working says that
+	// it shows a transfer under way or already done: until then a pass is only
+	// scanning and comparing.
+	Stats, Working bool
 }
 
 // FileEvent is one file (or folder) a pass changed, with the way it went.

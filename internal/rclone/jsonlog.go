@@ -5,7 +5,13 @@ import (
 	"encoding/json"
 	"io"
 	"regexp"
+	"time"
 )
+
+// statsEvery is how often the periodic stats block reaches the log. rclone is
+// asked for stats more often (see Args) so a pass can tell when it starts
+// transferring; the log keeps its old cadence.
+const statsEvery = time.Minute
 
 // Direction is which way a bisync pass is currently copying, from the point of
 // view of this machine: bisync's Path1 is the remote and Path2 the local side.
@@ -42,6 +48,18 @@ type jsonLog struct {
 	out   io.Writer
 	onRec func(LogRecord)
 	buf   []byte
+
+	lastStats time.Time // when a stats block last reached out
+	held      string    // the newest stats block not yet written
+}
+
+// flush writes the stats block held back, which is the final summary when the
+// run has ended.
+func (j *jsonLog) flush() {
+	if j.held != "" {
+		io.WriteString(j.out, j.held)
+		j.held = ""
+	}
 }
 
 func (j *jsonLog) Write(p []byte) (int, error) {
@@ -63,6 +81,10 @@ func (j *jsonLog) Write(p []byte) (int, error) {
 func (j *jsonLog) line(line []byte) error {
 	var rec struct {
 		Level, Msg, Object string
+		Stats              *struct {
+			Bytes, Transfers int64
+			Transferring     []json.RawMessage
+		}
 	}
 	if json.Unmarshal(line, &rec) != nil || rec.Msg == "" {
 		_, err := j.out.Write(append(line, '\n'))
@@ -72,7 +94,25 @@ func (j *jsonLog) line(line []byte) error {
 	if rec.Object != "" {
 		text = rec.Level + ": " + rec.Object + ": " + ansi.ReplaceAllString(rec.Msg, "")
 	}
-	j.onRec(LogRecord{Level: rec.Level, Object: rec.Object, Msg: rec.Msg})
+	lr := LogRecord{Level: rec.Level, Object: rec.Object, Msg: rec.Msg}
+	if rec.Stats != nil {
+		lr.Stats = true
+		lr.Working = rec.Stats.Bytes > 0 || rec.Stats.Transfers > 0 || len(rec.Stats.Transferring) > 0
+	}
+	j.onRec(lr)
+	if lr.Stats {
+		// Written once a minute; the latest one is kept for the end of the run.
+		if now := time.Now(); j.lastStats.IsZero() {
+			j.lastStats = now
+		} else if now.Sub(j.lastStats) >= statsEvery {
+			j.lastStats = now
+			j.held = ""
+			_, err := io.WriteString(j.out, text+"\n")
+			return err
+		}
+		j.held = text + "\n"
+		return nil
+	}
 	_, err := io.WriteString(j.out, text+"\n")
 	return err
 }

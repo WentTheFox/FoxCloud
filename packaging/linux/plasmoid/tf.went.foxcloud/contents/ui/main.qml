@@ -89,7 +89,7 @@ PlasmoidItem {
     }
 
     readonly property var jobs: view.jobs || []
-    readonly property var running: ["uploading", "downloading", "syncing"]
+    readonly property var running: ["checking", "uploading", "downloading", "syncing"]
     readonly property bool anyRunning: jobs.some(j => running.indexOf(j.state) >= 0)
     readonly property int conflictTotal: jobs.reduce((n, j) => n + (j.conflicts || 0), 0)
 
@@ -114,7 +114,7 @@ PlasmoidItem {
         if (has("failed")) return "failed"
         if (has("paused")) return "paused"
         const up = has("uploading"), down = has("downloading")
-        if (has("syncing") || (up && down)) return "syncing"
+        if (has("syncing") || has("checking") || (up && down)) return "syncing"
         if (up) return "uploading"
         if (down) return "downloading"
         if (has("waiting")) return "idle"
@@ -205,6 +205,7 @@ PlasmoidItem {
         switch (j.state) {
         case "waiting": return i18n("Waiting for the system to settle")
         case "idle": return j.message === "mounting" ? i18n("Mounting…") : i18n("Idle")
+        case "checking": return i18n("Checking for changes…")
         case "uploading": return j.resync ? i18n("Full resync…") : i18n("Uploading…")
         case "downloading": return j.resync ? i18n("Full resync…") : i18n("Downloading…")
         case "syncing": return j.resync ? i18n("Full resync…") : i18n("Syncing…")
@@ -216,13 +217,16 @@ PlasmoidItem {
         }
     }
 
+    // Every busy job is still comparing both sides, so nothing is moving yet.
+    readonly property bool onlyChecking: has("checking") && !has("syncing") && !has("uploading") && !has("downloading")
+
     readonly property string stateText: {
         if (failed) return i18n("foxcloud is not installed")
         if (!view.running) return i18n("Service not running")
         switch (iconName) {
         case "failed": return i18n("Sync failed")
         case "paused": return i18n("Sync paused")
-        case "syncing": return i18n("Syncing…")
+        case "syncing": return onlyChecking ? i18n("Checking for changes…") : i18n("Syncing…")
         case "uploading": return i18n("Uploading…")
         case "downloading": return i18n("Downloading…")
         case "synced": return i18n("Up to date")

@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -316,7 +317,7 @@ func mapDrive(p, goos string) string {
 	if l < 'a' || l > 'z' || (len(p) > 2 && p[2] != '\\' && p[2] != '/') {
 		return p
 	}
-	return filepath.Clean("/mnt/" + string(l) + "/" + strings.ReplaceAll(p[2:], `\`, "/"))
+	return path.Clean("/mnt/" + string(l) + "/" + strings.ReplaceAll(p[2:], `\`, "/"))
 }
 
 // ExpandHome expands a leading ~ to the user's home directory.

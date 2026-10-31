@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -198,7 +199,9 @@ func DefaultPath() (string, error) {
 
 // Load reads, normalises and validates the config at path.
 func Load(path string) (*Config, error) {
-	var c Config
+	// Names are encrypted unless the config says otherwise: leaving the keys
+	// out must not quietly store plaintext names.
+	c := Config{Crypt: Crypt{EncryptFilenames: true, EncryptDirectoryNames: true}}
 	if _, err := toml.DecodeFile(path, &c); err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
@@ -210,15 +213,15 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) normalise(baseDir string) {
-	c.Remote.KeyFile = ExpandHome(c.Remote.KeyFile)
-	c.Remote.KnownHostsFile = ExpandHome(c.Remote.KnownHostsFile)
+	c.Remote.KeyFile = ExpandPath(c.Remote.KeyFile)
+	c.Remote.KnownHostsFile = ExpandPath(c.Remote.KnownHostsFile)
 	for i := range c.Jobs {
 		j := &c.Jobs[i]
-		j.LocalPath = ExpandHome(j.LocalPath)
-		j.BackupDir = ExpandHome(j.BackupDir)
+		j.LocalPath = ExpandPath(j.LocalPath)
+		j.BackupDir = ExpandPath(j.BackupDir)
 		j.MountPoint = ExpandHome(j.MountPoint)
-		j.RequireMount = ExpandHome(j.RequireMount)
-		j.FilterFile = ExpandHome(j.FilterFile)
+		j.RequireMount = ExpandPath(j.RequireMount)
+		j.FilterFile = ExpandPath(j.FilterFile)
 		if j.MaxDelete == 0 {
 			j.MaxDelete = DefaultMaxDelete
 		}
@@ -293,6 +296,27 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ExpandPath is ExpandHome plus, off Windows, the mapping of a Windows drive
+// path to where that drive is mounted, so one config can be shared between
+// machines: `D:\Data` becomes `/mnt/d/Data`.
+func ExpandPath(p string) string {
+	return mapDrive(ExpandHome(p), runtime.GOOS)
+}
+
+// mapDrive rewrites `X:`, `X:\dir` or `X:/dir` to `/mnt/x/dir` unless goos is
+// Windows, where such a path is already native. Backslashes in the rest of the
+// path become slashes. Anything else is returned as it was.
+func mapDrive(p, goos string) string {
+	if goos == "windows" || len(p) < 2 || p[1] != ':' {
+		return p
+	}
+	l := p[0] | 0x20
+	if l < 'a' || l > 'z' || (len(p) > 2 && p[2] != '\\' && p[2] != '/') {
+		return p
+	}
+	return filepath.Clean("/mnt/" + string(l) + "/" + strings.ReplaceAll(p[2:], `\`, "/"))
 }
 
 // ExpandHome expands a leading ~ to the user's home directory.

@@ -109,17 +109,18 @@ docs/               setup guides
 
 ## Backlog
 
-- **Mount role (built, never run against a real mount).** The daemon runs
+- **Mount role (built; run on Linux with real FUSE against a local sshd, not on Windows).** The daemon runs
   `rclone mount --vfs-cache-mode <mode> --vfs-cache-max-size <size>` in the
   foreground for each `mount` job, reports `mounted` (the synced icon), and
   retries a minute after a failure; missing WinFsp/FUSE and a busy mount point
   are classified in plain English. Readiness is the one deliberate poll: a
   250 ms check, bounded to 30 s, that the mount point has appeared, because
   rclone gives a foreground mount no ready signal that works on every OS
-  (replace it if one turns up). Neither WinFsp nor FUSE was available when this
-  was written, so only the command line, the classifier and the supervision
-  were tested. Open: `foxcloud pin <path>` to keep chosen folders in the cache
-  (a pull job with a filter file does this today), an unmount on `stop`, and
+  (replace it if one turns up). On Linux (fuse3, rclone 1.75) it mounts, reads through the crypt layer and
+  unmounts when the daemon stops: `rclone.Run` now asks rclone to stop with
+  SIGINT (15 s grace, then kill) instead of killing it, since a kill left a
+  stale mount behind. WinFsp is still untested. Open: `foxcloud pin <path>` to keep chosen folders in the cache
+  (a pull job with a filter file does this today), and
   the required-mount check for jobs that sit on the mount.
 
 - **TODO: smarter handling of mixed-case name collisions.** Seen with the old

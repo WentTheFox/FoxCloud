@@ -7,8 +7,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
+	"time"
 )
+
+// stopGrace is how long rclone gets to wind down after being asked to stop
+// (a mount unmounts, a transfer finishes cleanly) before it is killed.
+const stopGrace = 15 * time.Second
 
 // maxCaptured bounds how much output is kept for failure classification;
 // a verbose run over many files can be large and the cause is near the end.
@@ -44,6 +50,12 @@ func Output(ctx context.Context, bin string, args, env []string) ([]byte, error)
 func Run(ctx context.Context, bin string, args, env []string, out io.Writer, onMsg func(string)) (output string, err error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append(os.Environ(), env...)
+	// A plain kill leaves a FUSE mount behind, stale and unreadable, so ask
+	// rclone to stop first. Windows cannot signal a process this way.
+	if runtime.GOOS != "windows" {
+		cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+		cmd.WaitDelay = stopGrace
+	}
 	var tail tailBuffer
 	w := io.Writer(io.MultiWriter(out, &tail))
 	if onMsg != nil {

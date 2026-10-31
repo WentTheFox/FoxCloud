@@ -18,6 +18,7 @@ ssh_host = "foxbox"
 path = "/foxcloud"
 
 [crypt]
+# Both default to true; set false only to store plain names (not recommended).
 encrypt_filenames = true
 encrypt_directory_names = true
 # Where the master key comes from; the crypt password and salt are derived
@@ -48,6 +49,8 @@ mode = "notify"
 # path = "foxcloud-journal/journal.log"   # relative to the SSH login folder
 
 # One table per job. Roles: push, pull, bisync, mount.
+# Windows drive paths ("D:\Data", "D:/Data") work on Linux and macOS too: they
+# map to /mnt/<letter>/..., so one config can be shared between machines.
 [[job]]
 name = "data"
 role = "push"

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -176,7 +177,18 @@ func secretCmd(args []string) error {
 		if len(args) != 2 || !slices.Contains(secret.Names, args[1]) {
 			return fmt.Errorf("set needs one of: %s", strings.Join(secret.Names, ", "))
 		}
-		b, err := io.ReadAll(os.Stdin)
+		var b []byte
+		var err error
+		if fi, serr := os.Stdin.Stat(); serr == nil && fi.Mode()&os.ModeCharDevice != 0 {
+			// Typed at a terminal: say what is expected and stop at the line end.
+			fmt.Fprintf(os.Stderr, "Paste the value for %s, then press Enter: ", args[1])
+			b, err = bufio.NewReader(os.Stdin).ReadBytes('\n')
+			if errors.Is(err, io.EOF) {
+				err = nil
+			}
+		} else {
+			b, err = io.ReadAll(os.Stdin)
+		}
 		if err != nil {
 			return err
 		}

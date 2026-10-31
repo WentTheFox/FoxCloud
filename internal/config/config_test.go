@@ -97,3 +97,36 @@ func TestUpdateModes(t *testing.T) {
 		t.Error("\"0\" installs at once")
 	}
 }
+
+func TestNamesEncryptedByDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.toml")
+	body := "[remote]\nhost = \"h\"\nuser = \"u\"\npath = \"/p\"\n[crypt]\nkey_command = \"echo k\"\n[[job]]\nname = \"j\"\nrole = \"push\"\nlocal_path = \"/x\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Crypt.EncryptFilenames || !c.Crypt.EncryptDirectoryNames {
+		t.Errorf("names should be encrypted by default: %+v", c.Crypt)
+	}
+}
+
+func TestMapDrive(t *testing.T) {
+	for _, c := range []struct{ in, goos, want string }{
+		{`D:\Data\sub`, "linux", "/mnt/d/Data/sub"},
+		{`d:/Data`, "linux", "/mnt/d/Data"},
+		{`D:`, "linux", "/mnt/d"},
+		{`D:\`, "linux", "/mnt/d"},
+		{`D:\Data`, "windows", `D:\Data`},
+		{`D:x`, "linux", `D:x`},
+		{"/srv/data", "linux", "/srv/data"},
+		{"relative/dir", "linux", "relative/dir"},
+		{"", "linux", ""},
+	} {
+		if got := mapDrive(c.in, c.goos); got != c.want {
+			t.Errorf("mapDrive(%q, %s) = %q, want %q", c.in, c.goos, got, c.want)
+		}
+	}
+}

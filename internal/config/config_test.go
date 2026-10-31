@@ -130,3 +130,30 @@ func TestMapDrive(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultPathFollowsTheEnvFile(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgDir)
+	t.Setenv("HOME", cfgDir)
+	t.Setenv("FOXCLOUD_CONFIG", "")
+	dir := filepath.Join(cfgDir, "foxcloud")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := "# the unit loads this too\nOTHER=1\nFOXCLOUD_CONFIG=\"/shared/config.toml\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "env"), []byte(env), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := DefaultPath(); got != "/shared/config.toml" {
+		t.Errorf("from the env file: %q", got)
+	}
+	t.Setenv("FOXCLOUD_CONFIG", "/explicit.toml")
+	if got, _ := DefaultPath(); got != "/explicit.toml" {
+		t.Errorf("the variable should win: %q", got)
+	}
+	os.Remove(filepath.Join(dir, "env"))
+	t.Setenv("FOXCLOUD_CONFIG", "")
+	if got, _ := DefaultPath(); got != filepath.Join(dir, "config.toml") {
+		t.Errorf("fallback: %q", got)
+	}
+}

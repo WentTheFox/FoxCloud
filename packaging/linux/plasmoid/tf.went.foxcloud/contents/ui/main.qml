@@ -69,6 +69,22 @@ PlasmoidItem {
     }
 
     readonly property var jobs: view.jobs || []
+    readonly property var running: ["uploading", "downloading", "syncing"]
+    readonly property bool anyRunning: jobs.some(j => running.indexOf(j.state) >= 0)
+    readonly property int conflictTotal: jobs.reduce((n, j) => n + (j.conflicts || 0), 0)
+
+    function syncAll() { for (const j of jobs) { if (j.state !== "mounted") act("sync-now", j.job) } }
+    function stopAll() { for (const j of jobs) { if (running.indexOf(j.state) >= 0) act("stop", j.job) } }
+
+    // Conflict resolution is a conversation, so it gets a terminal of its own:
+    // the first emulator found, detached so closing the popup does not close it.
+    function resolveConflicts() {
+        const pick = "for t in xdg-terminal-exec konsole kgx gnome-terminal xterm; do " +
+            "command -v $t >/dev/null || continue; " +
+            "case $t in xdg-terminal-exec) exec $t \"$@\";; gnome-terminal) exec $t -- \"$@\";; *) exec $t -e \"$@\";; esac; done; " +
+            "echo 'no terminal emulator found' >&2; exit 1"
+        exec.connectSource(uniq("setsid -f sh -c '" + pick.replace(/'/g, "'\\''") + "' sh " + cli + " conflicts resolve"))
+    }
 
     function has(state) { return jobs.some(j => j.state === state) }
 
@@ -149,11 +165,7 @@ PlasmoidItem {
             text: i18n("Sync all now")
             icon.name: "view-refresh"
             enabled: root.view.running
-            onTriggered: {
-                for (const j of root.jobs) {
-                    if (j.state !== "mounted") root.act("sync-now", j.job)
-                }
-            }
+            onTriggered: root.syncAll()
         }
     ]
 
@@ -237,12 +249,6 @@ PlasmoidItem {
                                 color: (modelData.state === "failed" || modelData.state === "paused") ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
                             }
                         }
-                        PlasmaComponents.Button {
-                            visible: modelData.state !== "mounted" && modelData.state !== "waiting"
-                            text: ["uploading", "downloading", "syncing"].indexOf(modelData.state) >= 0 ? i18n("Stop") : i18n("Sync now")
-                            icon.name: ["uploading", "downloading", "syncing"].indexOf(modelData.state) >= 0 ? "process-stop" : "view-refresh"
-                            onClicked: root.act(["uploading", "downloading", "syncing"].indexOf(modelData.state) >= 0 ? "stop" : "sync-now", modelData.job)
-                        }
                     }
                     PlasmaComponents.Label {
                         visible: (modelData.state === "failed" || modelData.state === "paused") && !!modelData.message
@@ -253,9 +259,7 @@ PlasmoidItem {
                     }
                     PlasmaComponents.Label {
                         visible: (modelData.conflicts || 0) > 0
-                        text: i18np("%1 file has conflicting versions (run: foxcloud conflicts %2)",
-                                    "%1 files have conflicting versions (run: foxcloud conflicts %2)",
-                                    modelData.conflicts || 0, modelData.job)
+                        text: i18np("%1 file has conflicting versions", "%1 files have conflicting versions", modelData.conflicts || 0)
                         color: Kirigami.Theme.neutralTextColor
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
@@ -270,6 +274,26 @@ PlasmoidItem {
 
             // Absorbs spare height so extra window size doesn't spread the content apart
             Item { Layout.fillHeight: true }
+
+            // Fixed at the bottom whatever the number of jobs.
+            Kirigami.Separator { Layout.fillWidth: true }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+                PlasmaComponents.Button {
+                    visible: root.conflictTotal > 0
+                    text: i18n("Resolve conflicts…")
+                    icon.name: "document-edit"
+                    onClicked: root.resolveConflicts()
+                }
+                Item { Layout.fillWidth: true }
+                PlasmaComponents.Button {
+                    enabled: root.view.running && root.jobs.length > 0
+                    text: root.anyRunning ? i18n("Stop") : i18n("Sync now")
+                    icon.name: root.anyRunning ? "process-stop" : "view-refresh"
+                    onClicked: root.anyRunning ? root.stopAll() : root.syncAll()
+                }
+            }
         }
     }
 }

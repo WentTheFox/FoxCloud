@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +21,7 @@ const conflictsUsage = `usage:
   foxcloud conflicts diff <job> <path>           compare a file with its conflict copies
   foxcloud conflicts keep <job> <path> <choice>  choice: original, both, or a copy's number (1 for .conflict1)
   foxcloud conflicts clean [job]                 archive conflict copies identical to their original
+  foxcloud conflicts resolve [job]               go through the conflicts one by one, asking what to keep
 
 Nothing is deleted: displaced files go to <backup_dir>/conflicts/<time>/.`
 
@@ -46,7 +49,7 @@ func conflictsCmd(cfg *config.Config, args []string) error {
 	sub := ""
 	if len(args) > 0 {
 		switch args[0] {
-		case "diff", "keep", "clean":
+		case "diff", "keep", "clean", "resolve":
 			sub, args = args[0], args[1:]
 		case "-h", "-help", "--help", "help":
 			fmt.Println(conflictsUsage)
@@ -54,7 +57,7 @@ func conflictsCmd(cfg *config.Config, args []string) error {
 		}
 	}
 	switch sub {
-	case "", "clean":
+	case "", "clean", "resolve":
 		if len(args) > 1 {
 			return errors.New(conflictsUsage)
 		}
@@ -62,10 +65,13 @@ func conflictsCmd(cfg *config.Config, args []string) error {
 		if len(args) == 1 {
 			only = args[0]
 		}
-		if sub == "" {
+		switch sub {
+		case "":
 			return listConflicts(cfg, only)
+		case "clean":
+			return cleanConflicts(cfg, only)
 		}
-		return cleanConflicts(cfg, only)
+		return resolveConflicts(cfg, only, os.Stdin, os.Stdout)
 	default:
 		want := 2
 		if sub == "keep" {
@@ -87,7 +93,7 @@ func conflictsCmd(cfg *config.Config, args []string) error {
 			return fmt.Errorf("%s has no conflict copies (list them with `foxcloud conflicts %s`)", args[1], args[0])
 		}
 		if sub == "diff" {
-			return diffConflict(r.Root, c)
+			return diffConflict(os.Stdout, r.Root, c)
 		}
 		var done []string
 		switch choice := args[2]; choice {
@@ -181,30 +187,30 @@ func byteSize(n int64) string {
 
 // diffConflict shows how each conflict copy differs from the original: the
 // system's diff for small text files, otherwise a size and time comparison.
-func diffConflict(root string, c conflict.Conflict) error {
+func diffConflict(w io.Writer, root string, c conflict.Conflict) error {
 	if !c.Exists {
-		fmt.Printf("%s no longer exists under its own name; %d conflict copy(ies) remain.\n", c.Original.Path, len(c.Variants))
+		fmt.Fprintf(w, "%s no longer exists under its own name; %d conflict copy(ies) remain.\n", c.Original.Path, len(c.Variants))
 		return nil
 	}
 	orig := filepath.Join(root, filepath.FromSlash(c.Original.Path))
 	for _, v := range c.Variants {
 		copyPath := filepath.Join(root, filepath.FromSlash(v.Path))
-		fmt.Printf("== %s (%s, %s) vs .conflict%d (%s, %s)\n",
+		fmt.Fprintf(w, "== %s (%s, %s) vs .conflict%d (%s, %s)\n",
 			c.Original.Path, byteSize(c.Original.Size), c.Original.ModTime.Local().Format("2006-01-02 15:04"),
 			v.N, byteSize(v.Size), v.ModTime.Local().Format("2006-01-02 15:04"))
 		if same, err := conflict.SameContent(orig, copyPath); err == nil && same {
-			fmt.Println("identical content (`foxcloud conflicts clean` archives it)")
+			fmt.Fprintln(w, "identical content (`foxcloud conflicts clean` archives it)")
 			continue
 		}
 		if !looksLikeText(orig) || !looksLikeText(copyPath) || runtime.GOOS == "windows" {
-			fmt.Println("content differs (not shown: binary, large, or no diff tool here)")
+			fmt.Fprintln(w, "content differs (not shown: binary, large, or no diff tool here)")
 			continue
 		}
 		cmd := exec.Command("diff", "-u", "--label", c.Original.Path, "--label", v.Path, orig, copyPath)
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		cmd.Stdout, cmd.Stderr = w, w
 		var ee *exec.ExitError
 		if err := cmd.Run(); err != nil && !(errors.As(err, &ee) && ee.ExitCode() == 1) {
-			fmt.Println("content differs (diff is not available:", err, ")")
+			fmt.Fprintln(w, "content differs (diff is not available:", err, ")")
 		}
 	}
 	return nil
@@ -223,4 +229,114 @@ func looksLikeText(p string) bool {
 	buf := make([]byte, 8<<10)
 	n, _ := f.Read(buf)
 	return !strings.Contains(string(buf[:n]), "\x00")
+}
+
+// resolveConflicts walks through every conflict of the job (or of all jobs) and
+// asks what to keep. It is meant for a terminal the widget opens, so it says
+// what it is doing and waits before returning, letting the window be read.
+func resolveConflicts(cfg *config.Config, only string, in io.Reader, out io.Writer) error {
+	r := bufio.NewReader(in)
+	ask := func(prompt string) (string, error) {
+		fmt.Fprint(out, prompt)
+		line, err := r.ReadString('\n')
+		if err != nil && line == "" {
+			return "", err
+		}
+		return strings.ToLower(strings.TrimSpace(line)), nil
+	}
+
+	names := syncedJobs(cfg, only)
+	if only != "" && len(names) == 0 {
+		return fmt.Errorf("no job named %q with a local folder", only)
+	}
+	handled, left := 0, 0
+loop:
+	for _, name := range names {
+		res, inc, err := conflictJob(cfg, name)
+		if err != nil {
+			return err
+		}
+		cs, err := conflict.Scan(res.Root, inc)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		for i, c := range cs {
+			fmt.Fprintf(out, "\n[%s %d/%d] %s\n", name, i+1, len(cs), c.Original.Path)
+			printVersions(out, res.Root, c)
+			for {
+				ans, err := ask("Keep: (o)riginal, (b)oth, copy number" + diffHint(c) + ", (s)kip, (q)uit > ")
+				if err != nil {
+					left += len(cs) - i
+					break loop
+				}
+				var done []string
+				var aerr error
+				switch {
+				case ans == "q":
+					left += len(cs) - i
+					break loop
+				case ans == "s" || ans == "":
+					left++
+				case ans == "d":
+					diffConflict(out, res.Root, c)
+					continue
+				case ans == "o":
+					done, aerr = res.KeepOriginal(c)
+				case ans == "b":
+					done, aerr = res.KeepBoth(c)
+				default:
+					n, perr := strconv.Atoi(ans)
+					if perr != nil {
+						fmt.Fprintln(out, "Not an option.")
+						continue
+					}
+					done, aerr = res.KeepVariant(c, n)
+				}
+				for _, line := range done {
+					fmt.Fprintln(out, " ", line)
+				}
+				if aerr != nil {
+					fmt.Fprintln(out, "Could not do that:", aerr)
+					continue
+				}
+				if len(done) > 0 {
+					handled++
+				}
+				break
+			}
+		}
+	}
+	switch {
+	case handled == 0 && left == 0:
+		fmt.Fprintln(out, "No conflicts.")
+	default:
+		fmt.Fprintf(out, "\nResolved %d, left %d. Displaced files are in each job's backup folder under conflicts/.\n", handled, left)
+	}
+	ask("Press Enter to close. ")
+	return nil
+}
+
+func diffHint(c conflict.Conflict) string {
+	if c.Exists {
+		return ", (d)iff"
+	}
+	return ""
+}
+
+func printVersions(out io.Writer, root string, c conflict.Conflict) {
+	orig := filepath.Join(root, filepath.FromSlash(c.Original.Path))
+	if c.Exists {
+		fmt.Fprintf(out, "  original  %s, %s\n", byteSize(c.Original.Size), c.Original.ModTime.Local().Format("2006-01-02 15:04"))
+	} else {
+		fmt.Fprintln(out, "  original  missing (only conflict copies remain)")
+	}
+	for _, v := range c.Variants {
+		note := ""
+		if c.Exists {
+			if eq, _ := conflict.SameContent(orig, filepath.Join(root, filepath.FromSlash(v.Path))); eq {
+				note = "  (identical to the original)"
+			}
+		}
+		fmt.Fprintf(out, "  copy %d    %s, %s%s\n", v.N, byteSize(v.Size), v.ModTime.Local().Format("2006-01-02 15:04"), note)
+	}
 }

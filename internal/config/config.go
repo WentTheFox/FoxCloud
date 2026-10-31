@@ -186,7 +186,10 @@ func (c *Config) Job(name string) (Job, bool) {
 const EnvVar = "FOXCLOUD_CONFIG"
 
 // DefaultPath is where the config lives when no -config flag is given:
-// $FOXCLOUD_CONFIG if set, else foxcloud/config.toml in the user config dir.
+// $FOXCLOUD_CONFIG if set, else the FOXCLOUD_CONFIG line of foxcloud/env in the
+// user config dir (the file the systemd unit loads, so a command run by hand
+// or from the Plasma widget finds the same config as the daemon), else
+// foxcloud/config.toml in the user config dir.
 func DefaultPath() (string, error) {
 	if p := os.Getenv(EnvVar); p != "" {
 		return ExpandHome(p), nil
@@ -195,7 +198,28 @@ func DefaultPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if p := envFilePath(filepath.Join(dir, "foxcloud", "env")); p != "" {
+		return ExpandHome(p), nil
+	}
 	return filepath.Join(dir, "foxcloud", "config.toml"), nil
+}
+
+// envFilePath reads FOXCLOUD_CONFIG from an environment file of KEY=value
+// lines (comments and optional quotes allowed), or returns "".
+func envFilePath(file string) string {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		key, val, ok := strings.Cut(line, "=")
+		if !ok || strings.HasPrefix(line, "#") || strings.TrimSpace(key) != EnvVar {
+			continue
+		}
+		return strings.Trim(strings.TrimSpace(val), `"'`)
+	}
+	return ""
 }
 
 // Load reads, normalises and validates the config at path.

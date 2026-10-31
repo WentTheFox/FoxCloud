@@ -9,3 +9,7 @@ Status: planning. See [PLAN.md](PLAN.md) for the design and milestones and
 
 Roles per machine: `push` (authoritative desktop), `pull`, `bisync`, and
 `mount` (files on demand for laptops).
+
+The Plasma widget uses icons from [Lucide](https://lucide.dev) (ISC licence, see
+`third_party/lucide/LICENSE`); clone with `--recurse-submodules` or run
+`git submodule update --init`.

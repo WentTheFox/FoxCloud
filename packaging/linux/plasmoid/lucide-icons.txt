@@ -1,0 +1,11 @@
+file-plus
+file-pen
+file-minus
+file-up
+folder-plus
+arrow-right-left
+trash
+archive
+cloud-upload
+cloud-download
+laptop

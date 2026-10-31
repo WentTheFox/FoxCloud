@@ -109,6 +109,31 @@ docs/               setup guides
 
 ## Backlog
 
+- **Change history (built; checked against a local sshd, the widget list
+  rendered in a standalone window, never run for days on a real desktop).** A
+  bounded local feed (`history.jsonl` in the state folder, cut from 5000 back to
+  2000 entries) of what happened to the files, shown by `foxcloud history`
+  and as "Recent changes" in the Plasma widget, grouped by day with Lucide icons
+  (submodule `third_party/lucide`; `install.sh` and the release copy the icons
+  listed in `packaging/linux/plasmoid/lucide-icons.txt`). Sources:
+  - file-by-file uploads (new vs modified from the in-memory tree; for `push`
+    also moves and deletes, for `bisync` only uploads and folders);
+  - the per-file lines of full passes, read from rclone's JSON log by
+    `rclone.FileTracker`: `Copied (new)`, `Copied (replaced existing)`,
+    `Deleted`, `Made directory`, and with a backup dir a `Moved (server-side)`
+    followed by `Copied (new)` is a modification and `Moved into backup dir` a
+    deletion. Direction is the role's, or bisync's own "Do queued copies"
+    announcement. This depends on rclone's wording (checked on 1.75), so an
+    unrecognised line is simply not reported;
+  - other machines' journal records (journal on), shown as "by <machine>";
+    the journal cannot tell new from changed, so these read "Uploaded";
+  - conflict resolutions (`trashed`, `archived`).
+  The widget follows it with `history-json -wait REV`, which blocks on the
+  file (no timer); times are shown as clock times under day headings so nothing
+  goes stale. Gaps: no sizes; a rename done during a full pass is a delete plus
+  a new file; the cross-platform tray menu does not show the feed yet (the
+  widget and CLI do); history is per machine, not shared.
+
 - **Mount role (built; run on Linux with real FUSE against a local sshd, not on Windows).** The daemon runs
   `rclone mount --vfs-cache-mode <mode> --vfs-cache-max-size <size>` in the
   foreground for each `mount` job, reports `mounted` (the synced icon), and

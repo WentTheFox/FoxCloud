@@ -14,6 +14,7 @@ import (
 
 	"github.com/WentTheFox/FoxCloud/internal/config"
 	"github.com/WentTheFox/FoxCloud/internal/conflict"
+	"github.com/WentTheFox/FoxCloud/internal/history"
 )
 
 const conflictsUsage = `usage:
@@ -112,6 +113,9 @@ func conflictsCmd(cfg *config.Config, args []string) error {
 		}
 		for _, line := range done {
 			fmt.Println(line)
+		}
+		if err == nil {
+			recordResolution(args[0], c, args[2], args[2])
 		}
 		return err
 	}
@@ -305,6 +309,7 @@ loop:
 				}
 				if len(done) > 0 {
 					handled++
+					recordResolution(name, c, map[string]string{"o": "original", "b": "both", "t": "trash"}[ans], ans)
 				}
 				break
 			}
@@ -343,4 +348,43 @@ func printVersions(out io.Writer, root string, c conflict.Conflict) {
 		}
 		fmt.Fprintf(out, "  copy %d    %s, %s%s\n", v.N, byteSize(v.Size), v.ModTime.Local().Format("2006-01-02 15:04"), note)
 	}
+}
+
+// recordResolution notes in the change history what a resolution did to a
+// conflict's files. The history is for reading only, so a failure to write it
+// is not worth failing the resolution for.
+func recordResolution(job string, c conflict.Conflict, named, number string) {
+	choice := named
+	if choice == "" {
+		choice = number // a copy's number
+	}
+	st, err := historyStore()
+	if err != nil {
+		return
+	}
+	var es []history.Entry
+	add := func(op, p, to string) {
+		es = append(es, history.Entry{Job: job, Op: op, Path: p, To: to, Way: history.Local})
+	}
+	switch choice {
+	case "trash":
+		for _, v := range c.Variants {
+			add(history.OpTrashed, v.Path, "")
+		}
+	case "original":
+		for _, v := range c.Variants {
+			add(history.OpArchived, v.Path, "")
+		}
+	case "both":
+		// the copies were only renamed; the changes show up as moves
+	default: // a copy's number replaced the original and the others were set aside
+		for _, v := range c.Variants {
+			if strconv.Itoa(v.N) == choice {
+				add(history.OpModified, c.Original.Path, "")
+			} else {
+				add(history.OpArchived, v.Path, "")
+			}
+		}
+	}
+	st.Append(es...)
 }

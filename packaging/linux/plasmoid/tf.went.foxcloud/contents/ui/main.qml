@@ -26,10 +26,16 @@ PlasmoidItem {
     // the executable engine can answer a just-disconnected, still-cached source
     // synchronously, which can recurse until the JS stack overflows. A trailing shell
     // comment makes every run a distinct source, so a cached answer is never replayed.
+    // What `foxcloud history-json` prints: { rev, entries: [{ t, job, op, p, to, d, way, m }] }, newest first.
+    property var history: []
+    readonly property string histCmd: cli + " history-json -n 60"
+
     property int seq: 0
     function uniq(cmd) { return cmd + " # " + (++seq) }
     function connectQuery() { exec.connectSource(uniq(queryCmd)) }
     function connectWait(rev) { exec.connectSource(uniq(waitCmd + rev)) }
+    // Same idea for the history: it blocks on the history file until it changes.
+    function connectHistory(rev) { exec.connectSource(uniq(histCmd + (rev ? " -wait " + rev : ""))) }
 
     P5Support.DataSource {
         id: exec
@@ -37,6 +43,14 @@ PlasmoidItem {
         connectedSources: []
         onNewData: (source, data) => {
             disconnectSource(source)
+            if (source.startsWith(root.histCmd)) {
+                let h = null
+                try { h = JSON.parse(data.stdout) } catch (e) {}
+                if (h === null) { histRetry.restart(); return }
+                root.history = h.entries
+                Qt.callLater(function () { root.connectHistory(h.rev) })
+                return
+            }
             const isStatus = source.startsWith(root.queryCmd)
             if (!isStatus) return   // actions (sync now, stop): nothing to read back
             let v = null
@@ -61,7 +75,13 @@ PlasmoidItem {
         onTriggered: root.connectQuery()
     }
 
-    Component.onCompleted: connectQuery()
+    Timer {
+        id: histRetry
+        interval: 30000
+        onTriggered: root.connectHistory("")
+    }
+
+    Component.onCompleted: { connectQuery(); connectHistory("") }
 
     function act(verb, job) {
         // Job names come from the config; quote them for the shell.
@@ -112,6 +132,74 @@ PlasmoidItem {
         default: return ""
         }
     }
+
+    // The feed: icon, wording and colour for each kind of change.
+    function opIcon(e) {
+        switch (e.op) {
+        case "new": return "file-plus"
+        case "modified": return "file-pen"
+        case "deleted": return "file-minus"
+        case "moved": return "arrow-right-left"
+        case "folder": return "folder-plus"
+        case "trashed": return "trash"
+        case "archived": return "archive"
+        case "uploaded": return "file-up"
+        default: return "file-pen"
+        }
+    }
+    function opText(e) {
+        const dir = !!e.d
+        switch (e.op) {
+        case "new": return dir ? i18n("New folder") : i18n("New file")
+        case "modified": return i18n("Modified")
+        case "deleted": return dir ? i18n("Folder deleted") : i18n("Deleted")
+        case "moved": return i18n("Moved")
+        case "folder": return i18n("New folder")
+        case "trashed": return i18n("Moved to trash")
+        case "archived": return i18n("Set aside")
+        case "uploaded": return i18n("Uploaded")
+        default: return e.op
+        }
+    }
+    function opColor(e) {
+        switch (e.op) {
+        case "new": case "folder": case "uploaded": return Kirigami.Theme.positiveTextColor
+        case "deleted": case "trashed": return Kirigami.Theme.negativeTextColor
+        case "modified": return Kirigami.Theme.neutralTextColor
+        default: return Kirigami.Theme.textColor
+        }
+    }
+    function wayIcon(e) { return e.way === "up" ? "cloud-upload" : e.way === "down" ? "cloud-download" : e.way === "remote" ? "laptop" : "" }
+    function wayText(e) {
+        switch (e.way) {
+        case "up": return i18n("sent to the server")
+        case "down": return i18n("received from the server")
+        case "remote": return e.m ? i18n("by %1", e.m) : i18n("by another computer")
+        default: return ""
+        }
+    }
+    function baseName(p) { const i = p.lastIndexOf("/"); return i < 0 ? p : p.slice(i + 1) }
+    function dirName(p) { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i) }
+    // A move shows both names, or, when only the folder changed, both folders.
+    function renamed(e) { return e.op === "moved" && !!e.to && baseName(e.p) !== baseName(e.to) }
+    function entryTitle(e) {
+        if (e.op !== "moved" || !e.to) return baseName(e.p)
+        return renamed(e) ? baseName(e.p) + " → " + baseName(e.to) : baseName(e.to)
+    }
+    function entryWhere(e) {
+        if (e.op === "moved" && e.to && !renamed(e)) return (dirName(e.p) || "/") + " → " + (dirName(e.to) || "/")
+        return dirName(e.op === "moved" && e.to ? e.to : e.p)
+    }
+    // Day headings are computed once per entry, so nothing needs a timer to stay right.
+    function dayLabel(iso) {
+        const d = new Date(iso), now = new Date()
+        const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+        if (day === today) return i18n("Today")
+        if (day === today - 86400000) return i18n("Yesterday")
+        return Qt.formatDate(d, Qt.DefaultLocaleLongDate)
+    }
+    readonly property var feed: history.map(e => Object.assign({ day: dayLabel(e.t) }, e))
 
     function jobText(j) {
         switch (j.state) {
@@ -272,8 +360,78 @@ PlasmoidItem {
                 }
             }
 
-            // Absorbs spare height so extra window size doesn't spread the content apart
-            Item { Layout.fillHeight: true }
+            // What has been happening, newest first, grouped by day.
+            PlasmaComponents.Label {
+                text: i18n("Recent changes")
+                font.bold: true
+                visible: root.feed.length > 0
+            }
+            ListView {
+                id: feedView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.preferredHeight: Kirigami.Units.gridUnit * 14
+                visible: root.feed.length > 0
+                clip: true
+                model: root.feed
+                spacing: Kirigami.Units.smallSpacing
+                boundsBehavior: Flickable.StopAtBounds
+                section.property: "day"
+                section.delegate: PlasmaComponents.Label {
+                    required property string section
+                    width: feedView.width
+                    topPadding: Kirigami.Units.smallSpacing
+                    text: section
+                    opacity: 0.7
+                    font: Kirigami.Theme.smallFont
+                }
+                PlasmaComponents.ScrollBar.vertical: PlasmaComponents.ScrollBar {}
+                delegate: RowLayout {
+                    required property var modelData
+                    width: feedView.width - Kirigami.Units.gridUnit  // clear of the scroll bar
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Kirigami.Icon {
+                        source: Qt.resolvedUrl("../icons/lucide/" + root.opIcon(modelData) + ".svg")
+                        isMask: true
+                        color: root.opColor(modelData)
+                        implicitWidth: Kirigami.Units.iconSizes.smallMedium
+                        implicitHeight: implicitWidth
+                        Layout.alignment: Qt.AlignTop
+                    }
+                    ColumnLayout {
+                        spacing: 0
+                        Layout.fillWidth: true
+                        PlasmaComponents.Label {
+                            Layout.fillWidth: true
+                            elide: Text.ElideMiddle
+                            text: root.entryTitle(modelData)
+                        }
+                        PlasmaComponents.Label {
+                            Layout.fillWidth: true
+                            elide: Text.ElideMiddle
+                            opacity: 0.6
+                            font: Kirigami.Theme.smallFont
+                            text: {
+                                const where = root.entryWhere(modelData)
+                                const parts = [root.opText(modelData)]
+                                if (where) parts.push(where)
+                                const w = root.wayText(modelData)
+                                if (w) parts.push(w)
+                                return parts.join(" · ")
+                            }
+                        }
+                    }
+                    PlasmaComponents.Label {
+                        text: Qt.formatTime(new Date(modelData.t), Qt.DefaultLocaleShortDate)
+                        opacity: 0.6
+                        font: Kirigami.Theme.smallFont
+                        Layout.alignment: Qt.AlignTop
+                    }
+                }
+            }
+            // Keeps the action row at the bottom when there is no history yet.
+            Item { Layout.fillHeight: true; visible: root.feed.length === 0 }
 
             // Fixed at the bottom whatever the number of jobs.
             Kirigami.Separator { Layout.fillWidth: true }

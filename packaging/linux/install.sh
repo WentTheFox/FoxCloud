@@ -49,6 +49,21 @@ if command -v kpackagetool6 >/dev/null 2>&1 && [ -d "$here/plasmoid/tf.went.foxc
 	else
 		cp "$root"/internal/tray/icons/*.png "$stage/tf.went.foxcloud/contents/icons/"
 	fi
+	# The Lucide icons of the change feed: from the release archive's copy, else
+	# from the submodule (git submodule update --init).
+	lucide=$here/plasmoid/lucide
+	[ -d "$lucide" ] || lucide=$root/third_party/lucide/icons
+	if [ -d "$lucide" ]; then
+		mkdir -p "$stage/tf.went.foxcloud/contents/icons/lucide"
+		while read -r name; do
+			[ -n "$name" ] && cp "$lucide/$name.svg" "$stage/tf.went.foxcloud/contents/icons/lucide/"
+		done < "$here/plasmoid/lucide-icons.txt"
+		for lic in "$lucide/LICENSE" "$lucide/../LICENSE"; do
+			[ -f "$lic" ] && cp "$lic" "$stage/tf.went.foxcloud/contents/icons/lucide/LICENSE" && break
+		done
+	else
+		echo "note: Lucide icons not found (run: git submodule update --init); the change feed will show no icons"
+	fi
 	kpackagetool6 -t Plasma/Applet -u "$stage/tf.went.foxcloud" 2>/dev/null ||
 		kpackagetool6 -t Plasma/Applet -i "$stage/tf.went.foxcloud"
 	echo "widget installed: enable \"FoxCloud\" under System Tray settings > Entries (restart plasmashell if it is not listed)"

@@ -22,6 +22,8 @@ func conflictFixture(t *testing.T) (*config.Config, string, string) {
 			t.Fatal(err)
 		}
 	}
+	t.Setenv("XDG_STATE_HOME", t.TempDir()) // resolutions are noted in the change history
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	cfg := &config.Config{Jobs: []config.Job{{Name: "j", Role: config.RoleBisync, LocalPath: root, BackupDir: backup}}}
 	return cfg, root, backup
 }
@@ -96,5 +98,25 @@ func TestResolveWithNoConflicts(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "No conflicts.") {
 		t.Errorf("got %q", out.String())
+	}
+}
+
+func TestResolutionsAreNotedInTheHistory(t *testing.T) {
+	cfg, _, _ := conflictFixture(t)
+	// a.txt: take copy 1; b.txt: keep the original; c.txt: skip.
+	if err := resolveConflicts(cfg, "", strings.NewReader("1\no\ns\n\n"), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := historyStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.Last(10, "")
+	ops := map[string]int{}
+	for _, e := range got {
+		ops[e.Op]++
+	}
+	if ops["modified"] != 1 || ops["archived"] != 1 || len(got) != 2 {
+		t.Errorf("history = %+v", got)
 	}
 }

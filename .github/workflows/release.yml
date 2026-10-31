@@ -29,6 +29,8 @@ jobs:
     runs-on: windows-latest   # Windows binaries are signed here; Go cross-compiles the rest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true   # third_party/lucide, for the widget's icons
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -64,6 +66,11 @@ jobs:
               Copy-Item packaging/linux/plasmoid "$out/plasmoid" -Recurse
               New-Item -ItemType Directory "$out/plasmoid/icons" | Out-Null
               Copy-Item internal/tray/icons/*.png "$out/plasmoid/icons"
+              New-Item -ItemType Directory "$out/plasmoid/lucide" | Out-Null
+              foreach ($n in Get-Content packaging/linux/plasmoid/lucide-icons.txt) {
+                if ($n) { Copy-Item "third_party/lucide/icons/$n.svg" "$out/plasmoid/lucide" }
+              }
+              Copy-Item third_party/lucide/LICENSE "$out/plasmoid/lucide"
             }
           }
 

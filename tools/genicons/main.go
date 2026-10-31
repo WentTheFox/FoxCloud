@@ -28,6 +28,12 @@ var glyph = map[string]string{"dark": "#e8e8ef", "light": "#2b2b33"}
 
 const size = 64
 
+// The PNGs are scaled down by the Linux tray and the Plasma widget to about
+// 22 px, where Lucide's stroke of 2 (8% of the width) blurs into faint lines
+// beside the panel's pixel-aligned icons. They are drawn heavier; the ICOs
+// Windows picks its own small sizes from keep the original weight.
+const pngStroke = "3"
+
 func main() {
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: genicons <repo root>")
@@ -42,23 +48,28 @@ func main() {
 		svgs, _ := filepath.Glob(filepath.Join(root, "assets", "status", theme, "*.svg"))
 		for _, svg := range svgs {
 			name := strings.TrimSuffix(filepath.Base(svg), ".svg")
-			pngBytes, err := render(svg, color)
+			pngBytes, err := render(svg, color, pngStroke)
+			if err != nil {
+				fatal(fmt.Errorf("%s: %w", svg, err))
+			}
+			icoBytes, err := render(svg, color, "2")
 			if err != nil {
 				fatal(fmt.Errorf("%s: %w", svg, err))
 			}
 			base := filepath.Join(out, theme+"-"+name)
 			must(os.WriteFile(base+".png", pngBytes, 0o644))
-			must(os.WriteFile(base+".ico", ico(pngBytes), 0o644))
+			must(os.WriteFile(base+".ico", ico(icoBytes), 0o644))
 		}
 	}
 }
 
-func render(path, color string) ([]byte, error) {
+func render(path, color, stroke string) ([]byte, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	svg := strings.ReplaceAll(string(src), "currentColor", color)
+	svg = strings.ReplaceAll(svg, `stroke-width="2"`, `stroke-width="`+stroke+`"`)
 	icon, err := oksvg.ReadIconStream(strings.NewReader(svg))
 	if err != nil {
 		return nil, err

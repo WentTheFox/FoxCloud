@@ -40,7 +40,7 @@ func BisyncDirection(msg string) (Direction, bool) {
 // are not JSON pass through unchanged.
 type jsonLog struct {
 	out   io.Writer
-	onMsg func(string)
+	onRec func(LogRecord)
 	buf   []byte
 }
 
@@ -72,7 +72,7 @@ func (j *jsonLog) line(line []byte) error {
 	if rec.Object != "" {
 		text = rec.Level + ": " + rec.Object + ": " + ansi.ReplaceAllString(rec.Msg, "")
 	}
-	j.onMsg(rec.Msg)
+	j.onRec(LogRecord{Level: rec.Level, Object: rec.Object, Msg: rec.Msg})
 	_, err := io.WriteString(j.out, text+"\n")
 	return err
 }

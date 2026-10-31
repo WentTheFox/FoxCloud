@@ -44,6 +44,9 @@ type RunOptions struct {
 	// OnDirection is called as a bisync pass switches between uploading and
 	// downloading, following rclone's own log rather than polling it.
 	OnDirection func(rclone.Direction)
+	// OnFile is called for each file or folder the pass changes, following
+	// rclone's own log. It feeds the change history.
+	OnFile func(rclone.FileEvent)
 }
 
 func (e *Engine) now() time.Time {
@@ -91,7 +94,7 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 	}
 	args, err := rclone.Args(job, rclone.Options{
 		DryRun: opts.DryRun, Force: opts.Force, Resync: resync, Now: e.now(),
-		JSONLog: opts.OnDirection != nil && job.Role == config.RoleBisync,
+		JSONLog: (opts.OnDirection != nil && job.Role == config.RoleBisync) || (opts.OnFile != nil && !opts.DryRun),
 	})
 	if err != nil {
 		return err
@@ -100,15 +103,30 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 	e.warnLongNames(ctx, job)
 
 	st.LastAttempt = e.now()
-	var onMsg func(string)
-	if opts.OnDirection != nil && job.Role == config.RoleBisync {
-		onMsg = func(msg string) {
-			if d, ok := rclone.BisyncDirection(msg); ok {
-				opts.OnDirection(d)
+	var onRec func(rclone.LogRecord)
+	var tracker *rclone.FileTracker
+	if opts.OnFile != nil && !opts.DryRun {
+		start := rclone.Upload // push, and bisync until it says otherwise
+		if job.Role == config.RolePull {
+			start = rclone.Download
+		}
+		tracker = rclone.NewFileTracker(start)
+	}
+	if tracker != nil || (opts.OnDirection != nil && job.Role == config.RoleBisync) {
+		onRec = func(r rclone.LogRecord) {
+			if opts.OnDirection != nil && job.Role == config.RoleBisync {
+				if d, ok := rclone.BisyncDirection(r.Msg); ok {
+					opts.OnDirection(d)
+				}
+			}
+			if tracker != nil {
+				if ev, ok := tracker.Feed(r); ok {
+					opts.OnFile(ev)
+				}
 			}
 		}
 	}
-	output, runErr := rclone.Run(ctx, e.Rclone, args, env, e.Out, onMsg)
+	output, runErr := rclone.RunLog(ctx, e.Rclone, args, env, e.Out, onRec)
 	if opts.DryRun {
 		return runErr // a dry run must not change the recorded state
 	}

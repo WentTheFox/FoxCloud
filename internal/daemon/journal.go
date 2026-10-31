@@ -12,6 +12,7 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/config"
 	"github.com/WentTheFox/FoxCloud/internal/delta"
 	"github.com/WentTheFox/FoxCloud/internal/filter"
+	"github.com/WentTheFox/FoxCloud/internal/history"
 	"github.com/WentTheFox/FoxCloud/internal/journal"
 )
 
@@ -99,6 +100,7 @@ func (d *Daemon) Incoming(rec journal.Record) {
 }
 
 func (d *Daemon) noteIncoming(j config.Job, rec journal.Record) {
+	d.recordIncoming(j, rec)
 	d.inMu.Lock()
 	defer d.inMu.Unlock()
 	in := d.incoming[j.Name]
@@ -147,6 +149,45 @@ func (d *Daemon) noteIncoming(j config.Job, rec journal.Record) {
 		in.timer = time.AfterFunc(IncomingDelay, func() { d.flushIncoming(j) })
 	} else {
 		in.timer.Reset(IncomingDelay)
+	}
+}
+
+// recordIncoming adds another machine's change to the history, for the jobs
+// whose folder it touches.
+func (d *Daemon) recordIncoming(j config.Job, rec journal.Record) {
+	if d.Record == nil {
+		return
+	}
+	rel, inside := relTo(j, rec.Path)
+	e := history.Entry{Job: j.Name, Way: history.Remote, Machine: rec.Machine, Dir: rec.Dir, Path: rel}
+	if rec.Time > 0 {
+		e.Time = time.Unix(rec.Time, 0)
+	}
+	switch rec.Op {
+	case journal.OpUpload:
+		e.Op = history.OpUploaded
+	case journal.OpMkdir:
+		e.Op, e.Dir = history.OpFolder, true
+	case journal.OpDelete:
+		e.Op = history.OpDeleted
+	case journal.OpRmdir:
+		e.Op, e.Dir = history.OpDeleted, true
+	case journal.OpMove:
+		to, toInside := relTo(j, rec.To)
+		if !inside && !toInside {
+			return
+		}
+		e.Op, e.To = history.OpMoved, to
+		if !inside {
+			e.Path = rec.Path
+		}
+		d.Record(e)
+		return
+	default:
+		return
+	}
+	if inside {
+		d.Record(e)
 	}
 }
 

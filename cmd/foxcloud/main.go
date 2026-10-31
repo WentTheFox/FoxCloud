@@ -39,6 +39,8 @@ commands:
   stop <job>                      ask the daemon to cancel a job's running pass
   update [-check|-rollback]       install the newest release (-check only looks, -rollback undoes the last one)
   status-json [-wait REV]         the daemon's state as JSON; with -wait, block until it differs from REV
+  history [-n 30] [job]           what has happened to the files: new, changed, deleted, moved, and who did it
+  history-json [-n 50] [-wait REV]  the same as JSON; with -wait, block until it changes
   journal-check                   append a test record to the shared journal and time it coming back
   version                         print the build version
   watch                           follow what the daemon's jobs are doing
@@ -65,6 +67,12 @@ func run() error {
 
 	if flag.Arg(0) == "status-json" {
 		return statusJSONCmd(flag.Args()[1:])
+	}
+	if flag.Arg(0) == "history" {
+		return historyCmd(flag.Args()[1:])
+	}
+	if flag.Arg(0) == "history-json" {
+		return historyJSONCmd(flag.Args()[1:])
 	}
 	if flag.Arg(0) == "update" {
 		return updateCmd(flag.Args()[1:])

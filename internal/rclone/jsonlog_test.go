@@ -27,7 +27,7 @@ func TestBisyncDirection(t *testing.T) {
 func TestJSONLogRendersPlainText(t *testing.T) {
 	var out strings.Builder
 	var msgs []string
-	j := &jsonLog{out: &out, onMsg: func(m string) { msgs = append(msgs, m) }}
+	j := &jsonLog{out: &out, onRec: func(r LogRecord) { msgs = append(msgs, r.Msg) }}
 	// Split mid-line to check buffering.
 	in := `{"level":"error","msg":"\u001b[31mfailed\u001b[0m","object":"a/b"}` + "\nplain line\n"
 	j.Write([]byte(in[:20]))

@@ -48,6 +48,17 @@ func Output(ctx context.Context, bin string, args, env []string) ([]byte, error)
 // is set, rclone must have been given --use-json-log: its lines are rendered
 // as plain text and each message is passed to onMsg.
 func Run(ctx context.Context, bin string, args, env []string, out io.Writer, onMsg func(string)) (output string, err error) {
+	var onRec func(LogRecord)
+	if onMsg != nil {
+		onRec = func(r LogRecord) { onMsg(r.Msg) }
+	}
+	return RunLog(ctx, bin, args, env, out, onRec)
+}
+
+// RunLog is Run for callers that want the whole log record (level, the file it
+// is about and the message), not just the message. rclone must have been given
+// --use-json-log.
+func RunLog(ctx context.Context, bin string, args, env []string, out io.Writer, onRec func(LogRecord)) (output string, err error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append(os.Environ(), env...)
 	// A plain kill leaves a FUSE mount behind, stale and unreadable, so ask
@@ -58,8 +69,8 @@ func Run(ctx context.Context, bin string, args, env []string, out io.Writer, onM
 	}
 	var tail tailBuffer
 	w := io.Writer(io.MultiWriter(out, &tail))
-	if onMsg != nil {
-		w = &jsonLog{out: w, onMsg: onMsg}
+	if onRec != nil {
+		w = &jsonLog{out: w, onRec: onRec}
 	}
 	cmd.Stdout, cmd.Stderr = w, w
 	err = cmd.Run()

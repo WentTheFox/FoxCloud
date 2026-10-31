@@ -21,8 +21,10 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/daemon"
 	"github.com/WentTheFox/FoxCloud/internal/delta"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
+	"github.com/WentTheFox/FoxCloud/internal/history"
 	"github.com/WentTheFox/FoxCloud/internal/rclone"
 	"github.com/WentTheFox/FoxCloud/internal/shutdown"
+	"github.com/WentTheFox/FoxCloud/internal/state"
 	"github.com/WentTheFox/FoxCloud/internal/update"
 	"github.com/WentTheFox/FoxCloud/internal/version"
 )
@@ -77,9 +79,23 @@ func run() error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// What happened to the files, for the tray and `foxcloud history`.
+	stateDir, err := state.Dir()
+	if err != nil {
+		return err
+	}
+	hist := &history.Store{Path: filepath.Join(stateDir, "history.jsonl")}
+	record := func(es ...history.Entry) {
+		if err := hist.Append(es...); err != nil {
+			fmt.Fprintf(logw, "foxcloudd: change history: %v\n", err)
+		}
+	}
+
 	d := daemon.New(cfg.Jobs, func(ctx context.Context, job string, onResync func(), onDirection func(rclone.Direction)) error {
-		return e.Run(ctx, job, engine.RunOptions{OnResync: onResync, OnDirection: onDirection})
+		return e.Run(ctx, job, engine.RunOptions{OnResync: onResync, OnDirection: onDirection,
+			OnFile: func(ev rclone.FileEvent) { record(fullPassEntry(job, ev)) }})
 	}, cfg.Daemon.StartupDelayDuration())
+	d.Record = record
 
 	// Pending uploads keep the machine from shutting down.
 	guard := shutdown.New(func(format string, args ...any) {
@@ -204,4 +220,13 @@ func openLog(path string) (*os.File, error) {
 		}
 	}
 	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+}
+
+// fullPassEntry turns one file a full pass changed into a history entry.
+func fullPassEntry(job string, ev rclone.FileEvent) history.Entry {
+	way := history.Up
+	if ev.Way == rclone.Download {
+		way = history.Down
+	}
+	return history.Entry{Job: job, Op: ev.Op, Path: ev.Path, Dir: ev.Dir, Way: way}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,6 +16,8 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/config"
 	"github.com/WentTheFox/FoxCloud/internal/delta"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
+	"github.com/WentTheFox/FoxCloud/internal/history"
+	"github.com/WentTheFox/FoxCloud/internal/journal"
 	"github.com/WentTheFox/FoxCloud/internal/rclone"
 )
 
@@ -482,5 +485,82 @@ func TestEventsCarryTheConflictCount(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no event after the count changed")
+	}
+}
+
+func capture(d *Daemon) *[]history.Entry {
+	var got []history.Entry
+	var mu sync.Mutex
+	d.Record = func(es ...history.Entry) {
+		mu.Lock()
+		got = append(got, es...)
+		mu.Unlock()
+	}
+	return &got
+}
+
+func TestRecordOpsForAPushJob(t *testing.T) {
+	d := New(job(config.RolePush, ""), ok, 0)
+	got := capture(d)
+	d.recordOps(d.jobs[0], delta.Ops{
+		Uploads:     []string{"a.txt", "b.txt"},
+		Created:     []string{"a.txt"},
+		Mkdirs:      []string{"dir"},
+		Moves:       []delta.Move{{From: "x", To: "y"}},
+		DeleteFiles: []string{"z.txt"},
+		DeleteDirs:  []string{"old"},
+	})
+	want := []history.Entry{
+		{Job: "a", Op: history.OpNew, Path: "a.txt", Way: history.Up},
+		{Job: "a", Op: history.OpModified, Path: "b.txt", Way: history.Up},
+		{Job: "a", Op: history.OpFolder, Path: "dir", Dir: true, Way: history.Up},
+		{Job: "a", Op: history.OpMoved, Path: "x", To: "y", Way: history.Up},
+		{Job: "a", Op: history.OpDeleted, Path: "z.txt", Way: history.Up},
+		{Job: "a", Op: history.OpDeleted, Path: "old", Dir: true, Way: history.Up},
+	}
+	if !reflect.DeepEqual(*got, want) {
+		t.Errorf("got %+v\nwant %+v", *got, want)
+	}
+}
+
+func TestRecordOpsForBisyncLeavesDeletesAndMovesToTheFullPass(t *testing.T) {
+	d := New(job(config.RoleBisync, ""), ok, 0)
+	got := capture(d)
+	d.recordOps(d.jobs[0], delta.Ops{
+		Uploads: []string{"a.txt"}, Created: []string{"a.txt"},
+		Moves: []delta.Move{{From: "x", To: "y"}}, DeleteFiles: []string{"z"},
+	})
+	if len(*got) != 1 || (*got)[0].Op != history.OpNew {
+		t.Errorf("got %+v", *got)
+	}
+}
+
+func TestRecordIncomingFromAnotherMachine(t *testing.T) {
+	jobs := []config.Job{{Name: "docs", Role: config.RoleBisync, RemotePath: "docs"}}
+	d := New(jobs, ok, 0)
+	got := capture(d)
+	at := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	for _, rec := range []journal.Record{
+		{Machine: "laptop", Time: at.Unix(), Op: journal.OpUpload, Path: "docs/a.txt"},
+		{Machine: "laptop", Op: journal.OpUpload, Path: "elsewhere/b.txt"}, // outside the job
+		{Machine: "laptop", Op: journal.OpDelete, Path: "docs/sub/c.txt"},
+		{Machine: "laptop", Op: journal.OpMove, Path: "docs/old.txt", To: "docs/new.txt"},
+	} {
+		d.recordIncoming(d.jobs[0], rec)
+	}
+	want := []history.Entry{
+		{Time: at.Local(), Job: "docs", Op: history.OpUploaded, Path: "a.txt", Way: history.Remote, Machine: "laptop"},
+		{Job: "docs", Op: history.OpDeleted, Path: "sub/c.txt", Way: history.Remote, Machine: "laptop"},
+		{Job: "docs", Op: history.OpMoved, Path: "old.txt", To: "new.txt", Way: history.Remote, Machine: "laptop"},
+	}
+	if len(*got) != 3 || !(*got)[0].Time.Equal(at) {
+		t.Fatalf("got %+v", *got)
+	}
+	for i := range want {
+		g := (*got)[i]
+		g.Time, want[i].Time = time.Time{}, time.Time{}
+		if !reflect.DeepEqual(g, want[i]) {
+			t.Errorf("entry %d: got %+v want %+v", i, g, want[i])
+		}
 	}
 }

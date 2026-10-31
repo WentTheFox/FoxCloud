@@ -34,6 +34,7 @@ type Move struct {
 // use forward slashes.
 type Ops struct {
 	Uploads     []string // new or changed files
+	Created     []string // the Uploads that did not exist before, sorted
 	Mkdirs      []string // new directories (including empty ones)
 	Moves       []Move
 	DeleteFiles []string
@@ -257,7 +258,9 @@ func (ix *Index) Update(touched []string, overflow bool) Ops {
 
 	for p := range newFiles {
 		ops.Uploads = append(ops.Uploads, p)
+		ops.Created = append(ops.Created, p)
 	}
+	sort.Strings(ops.Created)
 	for p := range changed {
 		ops.Uploads = append(ops.Uploads, p)
 	}

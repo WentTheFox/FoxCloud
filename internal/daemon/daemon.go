@@ -15,6 +15,7 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/delta"
 	"github.com/WentTheFox/FoxCloud/internal/engine"
 	"github.com/WentTheFox/FoxCloud/internal/filter"
+	"github.com/WentTheFox/FoxCloud/internal/history"
 	"github.com/WentTheFox/FoxCloud/internal/rclone"
 	"github.com/WentTheFox/FoxCloud/internal/watch"
 )
@@ -53,6 +54,8 @@ type Daemon struct {
 	// (a pass running, or changes noticed and not yet uploaded). The shutdown
 	// guard listens to it.
 	OnBusy func(busy bool)
+	// Record adds entries to the change history; without it none is kept.
+	Record func(entries ...history.Entry)
 	// Conflicts counts a job's files that have conflict copies. Without it no
 	// count is published.
 	Conflicts func(job string) int
@@ -339,11 +342,52 @@ func (d *Daemon) handleBatch(ctx context.Context, j config.Job, ix *delta.Index,
 		d.SyncNow(j.Name)
 	case prev.State == StateFailed || prev.State == StatePaused:
 		d.emit(prev) // a good upload does not clear an earlier failure
+		d.recordOps(j, ops)
 		d.enqueueJournal(j, ops)
 	default:
 		d.emit(Event{Job: j.Name, State: StateSynced, Message: "uploaded " + summary(ops)})
+		d.recordOps(j, ops)
 		d.enqueueJournal(j, ops)
 	}
+}
+
+// recordOps puts what a file-by-file batch applied into the change history. A
+// bisync job only uploads and creates folders this way; deletions and moves
+// wait for its next full pass, which reports them itself.
+func (d *Daemon) recordOps(j config.Job, ops delta.Ops) {
+	if d.Record == nil {
+		return
+	}
+	created := map[string]bool{}
+	for _, p := range ops.Created {
+		created[p] = true
+	}
+	var es []history.Entry
+	add := func(op, p, to string, dir bool) {
+		es = append(es, history.Entry{Job: j.Name, Op: op, Path: p, To: to, Dir: dir, Way: history.Up})
+	}
+	for _, p := range ops.Uploads {
+		if created[p] {
+			add(history.OpNew, p, "", false)
+		} else {
+			add(history.OpModified, p, "", false)
+		}
+	}
+	for _, p := range ops.Mkdirs {
+		add(history.OpFolder, p, "", true)
+	}
+	if j.Role == config.RolePush {
+		for _, m := range ops.Moves {
+			add(history.OpMoved, m.From, m.To, m.Dir)
+		}
+		for _, p := range ops.DeleteFiles {
+			add(history.OpDeleted, p, "", false)
+		}
+		for _, p := range ops.DeleteDirs {
+			add(history.OpDeleted, p, "", true)
+		}
+	}
+	d.Record(es...)
 }
 
 func summary(o delta.Ops) string {

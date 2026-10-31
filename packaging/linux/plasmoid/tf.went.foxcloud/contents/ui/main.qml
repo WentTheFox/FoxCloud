@@ -115,7 +115,10 @@ PlasmoidItem {
         }
     }
 
-    readonly property bool needsAttention: iconName === "failed" || iconName === "paused" || (!view.running && !failed)
+    // Only a failure or a pause makes the tray icon pulse: they need a person.
+    readonly property bool needsAttention: iconName === "failed" || iconName === "paused"
+    // A stopped service is shown steadily (amber icon), not animated.
+    readonly property bool offline: !view.running && !failed
     readonly property bool active: iconName === "syncing" || iconName === "uploading" || iconName === "downloading"
 
     Plasmoid.icon: "folder-cloud"
@@ -127,7 +130,7 @@ PlasmoidItem {
         return lines.join("\n")
     }
     Plasmoid.status: needsAttention ? PlasmaCore.Types.NeedsAttentionStatus
-        : active ? PlasmaCore.Types.ActiveStatus
+        : (active || offline) ? PlasmaCore.Types.ActiveStatus
         : PlasmaCore.Types.PassiveStatus
 
     Plasmoid.contextualActions: [
@@ -135,7 +138,11 @@ PlasmoidItem {
             text: i18n("Sync all now")
             icon.name: "view-refresh"
             enabled: root.view.running
-            onTriggered: for (const j of root.jobs) if (j.state !== "mounted") root.act("sync-now", j.job)
+            onTriggered: {
+                for (const j of root.jobs) {
+                    if (j.state !== "mounted") root.act("sync-now", j.job)
+                }
+            }
         }
     ]
 

@@ -15,10 +15,19 @@ if [ ! -x "$src/foxcloudd" ] || [ ! -x "$src/foxcloud" ]; then
 	(cd "$root" && CGO_ENABLED=0 go build -o "$src/" ./cmd/foxcloud ./cmd/foxcloudd ./cmd/foxcloud-tray)
 fi
 
+# On Plasma the widget is the status icon, so the separate tray icon would be a
+# duplicate: install it (and its autostart) only elsewhere.
+plasma=
+case ":${XDG_CURRENT_DESKTOP:-}:" in *:KDE:*)
+	command -v kpackagetool6 >/dev/null 2>&1 && [ -d "$here/plasmoid/tf.went.foxcloud" ] && plasma=1 ;;
+esac
+
 mkdir -p "$bindir" "$unitdir"
 install -m 0755 "$src/foxcloud" "$src/foxcloudd" "$bindir/"
 if [ -x "$src/foxcloud-tray" ]; then
 	install -m 0755 "$src/foxcloud-tray" "$bindir/"
+fi
+if [ -x "$src/foxcloud-tray" ] && [ -z "$plasma" ]; then
 	autostart=${XDG_CONFIG_HOME:-$HOME/.config}/autostart
 	mkdir -p "$autostart"
 	sed "s|^Exec=.*|Exec=$bindir/foxcloud-tray|" "$here/foxcloud-tray.desktop" > "$autostart/foxcloud-tray.desktop"
@@ -39,7 +48,7 @@ if command -v kpackagetool6 >/dev/null 2>&1 && [ -d "$here/plasmoid/tf.went.foxc
 	fi
 	kpackagetool6 -t Plasma/Applet -u "$stage/tf.went.foxcloud" 2>/dev/null ||
 		kpackagetool6 -t Plasma/Applet -i "$stage/tf.went.foxcloud"
-	echo "widget installed: add \"FoxCloud\" from Add Widgets (restart plasmashell if it is not listed)"
+	echo "widget installed: enable \"FoxCloud\" under System Tray settings > Entries (restart plasmashell if it is not listed)"
 fi
 
 systemctl --user daemon-reload

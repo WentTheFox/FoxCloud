@@ -184,7 +184,14 @@ func (d *Daemon) mountLoop(ctx context.Context, j config.Job) {
 // loop is one job's lifetime: hold, then pass, wait, pass, wait... Waiting is
 // on a timer or a trigger, never a poll.
 func (d *Daemon) loop(ctx context.Context, j config.Job) {
-	d.countConflicts(j)
+	// Counting walks the whole folder, which can take minutes on a big one.
+	// Until the job has said anything the tray shows "idle" with no jobs, so
+	// announce first and count in the background; the count joins the next
+	// event.
+	if d.startupDelay <= 0 {
+		d.emit(Event{Job: j.Name, State: StateWaiting, Message: "starting"})
+	}
+	go d.refreshConflicts(j)
 	if d.startupDelay > 0 {
 		until := time.Now().Add(d.startupDelay)
 		d.emit(Event{Job: j.Name, State: StateWaiting, Until: &until,

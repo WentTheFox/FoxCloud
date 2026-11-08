@@ -25,8 +25,9 @@ const (
 // Mount runs a mount job's rclone in the foreground until ctx is cancelled or
 // rclone exits. onReady is called once the mount point is usable. It returns
 // nil only when ctx was cancelled; rclone stopping by itself is an error,
-// classified where the output allows.
-func (e *Engine) Mount(ctx context.Context, name string, onReady func()) error {
+// classified where the output allows. onChange, if set, hears of each file the
+// mount uploaded or renamed on the remote, read from rclone's log.
+func (e *Engine) Mount(ctx context.Context, name string, onReady func(), onChange func(rclone.MountChange)) error {
 	job, ok := e.Cfg.Job(name)
 	if !ok {
 		return fmt.Errorf("no job named %q", name)
@@ -41,6 +42,15 @@ func (e *Engine) Mount(ctx context.Context, name string, onReady func()) error {
 	args, err := rclone.MountArgs(job)
 	if err != nil {
 		return err
+	}
+	var onRec func(rclone.LogRecord)
+	if onChange != nil {
+		args = append(args, "--use-json-log")
+		onRec = func(r rclone.LogRecord) {
+			if c, ok := rclone.ParseMountRecord(r); ok {
+				onChange(c)
+			}
+		}
 	}
 	// rclone wants an existing empty folder on Unix; on Windows the mount point
 	// is a drive letter (or a folder it must create itself).
@@ -79,7 +89,7 @@ func (e *Engine) Mount(ctx context.Context, name string, onReady func()) error {
 	}()
 
 	st.LastAttempt = e.now()
-	output, runErr := rclone.Run(runCtx, e.Rclone, args, env, e.Out, nil)
+	output, runErr := rclone.RunLog(runCtx, e.Rclone, args, env, e.Out, onRec)
 	close(exited)
 	if ctx.Err() != nil {
 		return nil

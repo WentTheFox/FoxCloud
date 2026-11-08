@@ -72,9 +72,11 @@ func sshArgs(r config.Remote) []string {
 func JournalRecords(job config.Job, ops delta.Ops) []journal.Record {
 	remote := func(rel string) string { return path.Join(strings.Trim(job.RemotePath, "/"), rel) }
 	push := job.Role == config.RolePush
+	// A mount applies renames to the remote as they happen, like a push does.
+	direct := push || job.Role == config.RoleMount
 	var recs []journal.Record
 	for _, m := range ops.Moves {
-		if push {
+		if direct {
 			recs = append(recs, journal.Record{Op: journal.OpMove, Path: remote(m.From), To: remote(m.To), Dir: m.Dir})
 		}
 	}
@@ -90,7 +92,7 @@ func JournalRecords(job config.Job, ops delta.Ops) []journal.Record {
 		recs = append(recs, journal.Record{Op: journal.OpMkdir, Path: remote(p), Dir: true})
 	}
 	uploads := append([]string(nil), ops.Uploads...)
-	if !push {
+	if !direct {
 		// A moved file was uploaded under its new name.
 		for _, m := range ops.Moves {
 			if !m.Dir {

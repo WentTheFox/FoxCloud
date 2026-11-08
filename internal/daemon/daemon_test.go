@@ -328,7 +328,7 @@ func TestMountJobsAreSupervised(t *testing.T) {
 	var attempts atomic.Int32
 	jobs := []config.Job{{Name: "m", Role: config.RoleMount, MountPoint: "X:"}}
 	d := New(jobs, ok, 0)
-	d.Mount = func(ctx context.Context, _ string, onReady func()) error {
+	d.Mount = func(ctx context.Context, _ string, onReady func(), _ func(rclone.MountChange)) error {
 		if attempts.Add(1) == 1 {
 			return fmt.Errorf("winfsp missing") // first try fails
 		}
@@ -350,7 +350,7 @@ func TestMountJobsAreSupervised(t *testing.T) {
 func TestMountPauseIsReported(t *testing.T) {
 	jobs := []config.Job{{Name: "m", Role: config.RoleMount, MountPoint: "X:"}}
 	d := New(jobs, ok, 0)
-	d.Mount = func(context.Context, string, func()) error { return engine.ErrPaused }
+	d.Mount = func(context.Context, string, func(), func(rclone.MountChange)) error { return engine.ErrPaused }
 	await := start(t, d)
 	await(StatePaused)
 }

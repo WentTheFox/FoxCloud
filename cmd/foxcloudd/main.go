@@ -121,8 +121,8 @@ func run() error {
 	d.Fetch = func(ctx context.Context, job string, paths []string, overwrite bool) error {
 		return e.Fetch(ctx, job, paths, overwrite)
 	}
-	d.Mount = func(ctx context.Context, job string, onReady func()) error {
-		return e.Mount(ctx, job, onReady)
+	d.Mount = func(ctx context.Context, job string, onReady func(), onChange func(rclone.MountChange)) error {
+		return e.Mount(ctx, job, onReady, onChange)
 	}
 	d.Logf = func(format string, args ...any) {
 		fmt.Fprintf(logw, "foxcloudd: "+format+"\n", args...)

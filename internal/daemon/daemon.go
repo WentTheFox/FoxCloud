@@ -26,8 +26,9 @@ import (
 type Runner func(ctx context.Context, job string, onResync func(), onDirection func(rclone.Direction)) error
 
 // Mounter runs a mount job until ctx is cancelled or the mount dies, calling
-// onReady once the mount is usable.
-type Mounter func(ctx context.Context, job string, onReady func()) error
+// onReady once the mount is usable and onChange for each file it changes on
+// the remote.
+type Mounter func(ctx context.Context, job string, onReady func(), onChange func(rclone.MountChange)) error
 
 // MountRetry is how long a failed mount waits before it is tried again.
 var MountRetry = time.Minute
@@ -158,7 +159,7 @@ func (d *Daemon) mountLoop(ctx context.Context, j config.Job) {
 		d.emit(Event{Job: j.Name, State: StateIdle, Message: "mounting"})
 		err := d.Mount(ctx, j.Name, func() {
 			d.emit(Event{Job: j.Name, State: StateMounted, Message: "mounted at " + j.MountPoint})
-		})
+		}, d.mountChange(j))
 		if ctx.Err() != nil {
 			return
 		}

@@ -269,3 +269,16 @@ func TestFetchRefusesOtherRoles(t *testing.T) {
 		t.Error("a push job does not download")
 	}
 }
+
+func TestJournalRecordsForAMountAreUploadsAndRenames(t *testing.T) {
+	job := config.Job{Role: config.RoleMount, RemotePath: "sub"}
+	ops := delta.Ops{Uploads: []string{"a.txt"}, Moves: []delta.Move{{From: "x.txt", To: "y.txt"}}}
+	var got []string
+	for _, r := range JournalRecords(job, ops) {
+		got = append(got, r.Op+" "+r.Path+" "+r.To)
+	}
+	want := "mv sub/x.txt sub/y.txt|up sub/a.txt "
+	if strings.Join(got, "|") != want {
+		t.Errorf("mount records = %q, want %q", got, want)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/WentTheFox/FoxCloud/internal/filter"
 	"github.com/WentTheFox/FoxCloud/internal/history"
 	"github.com/WentTheFox/FoxCloud/internal/journal"
+	"github.com/WentTheFox/FoxCloud/internal/rclone"
 )
 
 // JournalWriter tells the other machines about changes this one just uploaded.
@@ -276,9 +278,81 @@ func (d *Daemon) runCtx() context.Context {
 
 type journalState struct {
 	journalCh chan journalWork
+	mbMu      sync.Mutex
+	mbatch    map[string]*mountBatch
 	inMu      sync.Mutex
 	incoming  map[string]*incoming
 	firstPass map[string]chan struct{}
 	ctxMu     sync.Mutex
 	ctx       context.Context
+}
+
+// mountBatchDelay is how long a mount's uploads are gathered into one journal
+// write, so a burst of files is one append to the log instead of one each.
+var mountBatchDelay = 2 * time.Second
+
+type mountBatch struct {
+	uploads map[string]bool
+	timer   *time.Timer
+}
+
+// mountChange returns what a mount job's log reader calls for each file the
+// mount changed on the remote, or nil when nothing is journaled. Only what the
+// mount's log states outright is recorded (see rclone.ParseMountRecord);
+// deletions, folders and folder renames are not, and other machines find those
+// in their next full pass.
+func (d *Daemon) mountChange(j config.Job) func(rclone.MountChange) {
+	if d.JournalWrite == nil {
+		return nil
+	}
+	flush := func() {
+		d.mbMu.Lock()
+		defer d.mbMu.Unlock()
+		d.flushMountLocked(j)
+	}
+	return func(c rclone.MountChange) {
+		d.mbMu.Lock()
+		defer d.mbMu.Unlock()
+		if d.mbatch == nil {
+			d.mbatch = map[string]*mountBatch{}
+		}
+		b := d.mbatch[j.Name]
+		if b == nil {
+			b = &mountBatch{uploads: map[string]bool{}}
+			d.mbatch[j.Name] = b
+		}
+		switch c.Kind {
+		case rclone.MountUpload:
+			b.uploads[c.Path] = true
+			if b.timer == nil {
+				b.timer = time.AfterFunc(mountBatchDelay, flush)
+			}
+		case rclone.MountMove:
+			// Keep the order of events: what was uploaded so far is written
+			// before the rename that may have moved it.
+			d.flushMountLocked(j)
+			d.enqueueJournal(j, delta.Ops{Moves: []delta.Move{{From: c.Path, To: c.To}}})
+		}
+	}
+}
+
+func (d *Daemon) flushMountLocked(j config.Job) {
+	b := d.mbatch[j.Name]
+	if b == nil {
+		return
+	}
+	if b.timer != nil {
+		b.timer.Stop()
+		b.timer = nil
+	}
+	if len(b.uploads) == 0 {
+		return
+	}
+	ops := delta.Ops{}
+	for p := range b.uploads {
+		ops.Uploads = append(ops.Uploads, p)
+	}
+	sort.Strings(ops.Uploads)
+	b.uploads = map[string]bool{}
+	d.enqueueJournal(j, ops)
 }

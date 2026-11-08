@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -208,5 +209,51 @@ func TestAppliedChangesAreWrittenToTheJournalInOrder(t *testing.T) {
 	defer mu.Unlock()
 	if len(seen) != 1 || seen[0] != "one.txt" {
 		t.Errorf("journal saw %v", seen)
+	}
+}
+
+func TestMountChangesAreBatchedAndKeepTheirOrder(t *testing.T) {
+	old := mountBatchDelay
+	mountBatchDelay = 50 * time.Millisecond
+	defer func() { mountBatchDelay = old }()
+
+	var mu sync.Mutex
+	var seen []delta.Ops
+	d := New(nil, ok, 0)
+	d.Logf = func(string, ...any) {}
+	d.JournalWrite = func(_ context.Context, _ config.Job, ops delta.Ops) error {
+		mu.Lock()
+		seen = append(seen, ops)
+		mu.Unlock()
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.journalWorker(ctx)
+
+	j := config.Job{Name: "m", Role: config.RoleMount}
+	fn := d.mountChange(j)
+	fn(rclone.MountChange{Kind: rclone.MountUpload, Path: "b.txt"})
+	fn(rclone.MountChange{Kind: rclone.MountUpload, Path: "a.txt"})
+	fn(rclone.MountChange{Kind: rclone.MountUpload, Path: "a.txt"})
+	fn(rclone.MountChange{Kind: rclone.MountMove, Path: "a.txt", To: "c.txt"})
+	time.Sleep(300 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 2 {
+		t.Fatalf("journal writes = %d (%v), want 2", len(seen), seen)
+	}
+	if got := strings.Join(seen[0].Uploads, ","); got != "a.txt,b.txt" || len(seen[0].Moves) != 0 {
+		t.Errorf("first write = %+v, want the two uploads once each", seen[0])
+	}
+	if len(seen[1].Moves) != 1 || seen[1].Moves[0].To != "c.txt" {
+		t.Errorf("second write = %+v, want the rename", seen[1])
+	}
+}
+
+func TestMountChangeIsNilWithoutAJournal(t *testing.T) {
+	if New(nil, ok, 0).mountChange(config.Job{Name: "m"}) != nil {
+		t.Error("a mount should not be asked to log JSON when nothing is journaled")
 	}
 }

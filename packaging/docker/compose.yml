@@ -21,10 +21,32 @@ services:
       # (not published); `env -u RCLONE_RC` stops the client from trying to
       # start a second server.
       RCLONE_RC: "true"
+      # Uncomment to let other users (a non-root web UI container, say) read the
+      # mount; without it only root in this container can. Verified with uid 1000.
+      # RCLONE_ALLOW_OTHER: "true"
     # FUSE needs these to mount inside a container.
     devices: ["/dev/fuse:/dev/fuse"]
     cap_add: [SYS_ADMIN]
     security_opt: ["apparmor:unconfined"]
+    # A web file manager (copyparty, say) can read and write the mount from a
+    # service in THIS file, with the same rslave bind that rcd has below:
+    #  - depends_on `service_healthy` only works inside one compose project, so
+    #    keep such a service in the same file as foxcloud;
+    #  - if it runs as a non-root user, set RCLONE_ALLOW_OTHER above;
+    #  - keep its history/index folder on local disk, never on the mount, owned
+    #    by its uid (a missing bind source is created as root), and leave
+    #    indexing off so it does not scan the whole tree;
+    #  - with copyparty/ac do not pass -c for /cfg: the image already loads
+    #    /cfg/*.conf, and a second copy defines the volumes twice and exits.
+    # Healthy once the mount is up (about 10 s after start). Anything that needs
+    # the mount at start-up, such as a web file manager, should wait for it:
+    #   depends_on: { foxcloud: { condition: service_healthy } }
+    healthcheck:
+      test: ["CMD-SHELL", "mount | grep -q 'on /mnt/foxcloud/fox type fuse.rclone'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
     volumes:
       - ./config.toml:/config/config.toml:ro
       - foxcloud-state:/state          # also holds the capped write cache
@@ -41,7 +63,7 @@ services:
       context: ../..
       args: { VERSION: docker }
     restart: unless-stopped
-    depends_on: [foxcloud]
+    depends_on: { foxcloud: { condition: service_healthy } }
     entrypoint: ["rclone"]
     command: ["rcd", "--rc-addr=:5572"]
     environment:

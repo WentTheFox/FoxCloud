@@ -202,14 +202,7 @@ func (e *Engine) remoteEnv(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	obsPw, err := rclone.Obscure(ctx, e.Rclone, pw)
-	if err != nil {
-		return nil, err
-	}
-	obsSalt, err := rclone.Obscure(ctx, e.Rclone, salt)
-	if err != nil {
-		return nil, err
-	}
+	obsPw, obsSalt := rclone.Obscure(pw), rclone.Obscure(salt)
 	remote, err := e.resolveRemote(ctx)
 	if err != nil {
 		return nil, err

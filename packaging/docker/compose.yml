@@ -1,0 +1,60 @@
+# Run from the repo root:  docker compose -f packaging/docker/compose.yml --env-file packaging/docker/.env up -d --build
+# Secrets are passed as environment variables at run time (see .env.example);
+# nothing secret is used during the image build. To use the published image,
+# replace each `build:` block with  image: ghcr.io/wentthefox/foxcloud:latest
+#
+# Host prerequisite: a folder that can carry mounts between containers:
+#   mkdir -p /srv/foxcloud-mount && mount --bind /srv/foxcloud-mount /srv/foxcloud-mount \
+#     && mount --make-rshared /srv/foxcloud-mount
+services:
+  foxcloud:
+    build:
+      context: ../..
+      args: { VERSION: docker }
+    restart: unless-stopped
+    environment:
+      FOXCLOUD_CRYPT_KEY: ${FOXCLOUD_CRYPT_KEY:?set in .env}
+      FOXCLOUD_SSH_KEY: ${FOXCLOUD_SSH_KEY:?set in .env}
+      FOXCLOUD_KNOWN_HOSTS: ${FOXCLOUD_KNOWN_HOSTS:?set in .env}
+      # Lets `docker exec <foxcloud> env -u RCLONE_RC rclone rc vfs/queue`
+      # show pending uploads. Listens on 127.0.0.1 inside the container only
+      # (not published); `env -u RCLONE_RC` stops the client from trying to
+      # start a second server.
+      RCLONE_RC: "true"
+    # FUSE needs these to mount inside a container.
+    devices: ["/dev/fuse:/dev/fuse"]
+    cap_add: [SYS_ADMIN]
+    security_opt: ["apparmor:unconfined"]
+    volumes:
+      - ./config.toml:/config/config.toml:ro
+      - foxcloud-state:/state          # also holds the capped write cache
+      - type: bind                     # the shadow mount appears here on the host
+        source: /srv/foxcloud-mount
+        target: /mnt/foxcloud
+        bind: { propagation: rshared }
+
+  # rclone's remote-control server, for the Rclone UI app on the phone. It sees
+  # the shadow mount at /data, so browsing, downloading and uploading all go
+  # through it; it has no crypt or SFTP credentials of its own.
+  rcd:
+    build:
+      context: ../..
+      args: { VERSION: docker }
+    restart: unless-stopped
+    depends_on: [foxcloud]
+    entrypoint: ["rclone"]
+    command: ["rcd", "--rc-addr=:5572"]
+    environment:
+      # Basic auth is required; never run rcd with --rc-no-auth.
+      RCLONE_RC_USER: ${RCD_USER:?set RCD_USER in .env}
+      RCLONE_RC_PASS: ${RCD_PASS:?set RCD_PASS in .env}
+    ports:
+      - "5572:5572"    # LAN/VPN only. For use over the internet, put a TLS reverse proxy in front.
+    volumes:
+      - type: bind
+        source: /srv/foxcloud-mount
+        target: /data
+        bind: { propagation: rslave }
+
+volumes:
+  foxcloud-state:

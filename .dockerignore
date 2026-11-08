@@ -1,0 +1,7 @@
+.git
+bin
+dist
+third_party
+packaging/*
+!packaging/docker/entrypoint.sh
+*.md

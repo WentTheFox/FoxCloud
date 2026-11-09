@@ -8,12 +8,13 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// Follow keeps a client connected: it watches the daemon and calls fn for its
-// events, and when the daemon is not running (or goes away) it calls gone and
+// Follow keeps a client connected: it watches the daemon and calls up once each
+// time it connects (before the first event, and even if there are no jobs to
+// report), fn for its events, and when the daemon is not running (or goes away) it calls gone and
 // then waits, with no polling, for the socket file to reappear before
 // connecting again. It returns only when ctx is cancelled or the socket's
 // directory cannot be watched.
-func Follow(ctx context.Context, path string, fn func(Event), gone func()) error {
+func Follow(ctx context.Context, path string, up func(), fn func(Event), gone func()) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -28,7 +29,12 @@ func Follow(ctx context.Context, path string, fn func(Event), gone func()) error
 	}
 	for {
 		// Watching first means a socket created while we connect is not missed.
-		err := Watch(ctx, path, fn)
+		err := WatchSnapshot(ctx, path, func(evs []Event) {
+			up()
+			for _, ev := range evs {
+				fn(ev)
+			}
+		}, fn)
 		if ctx.Err() != nil {
 			return nil
 		}

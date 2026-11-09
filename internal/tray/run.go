@@ -36,6 +36,7 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 		slots    []*systray.MenuItem
 		slotJob  [maxJobSlots]string
 		offline  *systray.MenuItem
+		syncAll  *systray.MenuItem
 		updItem  *systray.MenuItem
 	)
 
@@ -46,8 +47,14 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 
 		if model.Offline {
 			offline.Show()
+			syncAll.Hide()
 		} else {
 			offline.Hide()
+			if len(model.Jobs()) > 0 {
+				syncAll.Show()
+			} else {
+				syncAll.Hide()
+			}
 		}
 		// Jobs fill the pre-made slots in name order. The slots sit above the
 		// separator; an item added later would land below Quit.
@@ -80,8 +87,31 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 
 	systray.Run(func() {
 		systray.SetOnTapped(togglePopup(logf))
-		offline = systray.AddMenuItem("FoxCloud service is not running", "Start the foxcloudd service")
-		offline.Disable()
+		offline = systray.AddMenuItem("Start FoxCloud service", "FoxCloud is not running: click to start the daemon")
+		syncAll = systray.AddMenuItem("Sync all now", "Sync every job now")
+		syncAll.Hide()
+		go func() {
+			for {
+				select {
+				case <-offline.ClickedCh:
+					if out, err := startService(); err != nil {
+						logf("start service: %v: %s", err, out)
+					}
+				case <-syncAll.ClickedCh:
+					mu.Lock()
+					jobs := model.Jobs()
+					mu.Unlock()
+					sock, _ := daemon.SocketPath()
+					for _, ev := range jobs {
+						if _, err := daemon.Do(sock, daemon.Request{Cmd: "sync-now", Job: ev.Job}); err != nil {
+							logf("sync-now %s: %v", ev.Job, err)
+						}
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
 		for i := 0; i < maxJobSlots; i++ {
 			it := systray.AddMenuItem("", "Click to sync now")
 			it.Hide()
@@ -170,7 +200,14 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 			}()
 		}
 		go func() {
-			err := daemon.Follow(ctx, sock, func(ev daemon.Event) {
+			err := daemon.Follow(ctx, sock, func() {
+				// Connected: a daemon with no jobs sends no events, and must
+				// still stop showing as offline.
+				mu.Lock()
+				defer mu.Unlock()
+				model.SetOnline()
+				render()
+			}, func(ev daemon.Event) {
 				mu.Lock()
 				defer mu.Unlock()
 				model.Apply(ev)
@@ -187,6 +224,19 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 			}
 		}()
 	}, cancel)
+}
+
+// startService starts the daemon the way the installer set it up: the
+// scheduled task on Windows, the user service elsewhere.
+func startService() (string, error) {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("schtasks", "/run", "/tn", "FoxCloud daemon")
+	} else {
+		cmd = exec.Command("systemctl", "--user", "start", "foxcloudd")
+	}
+	out, err := proc.Hide(cmd).CombinedOutput()
+	return string(out), err
 }
 
 // runUpdate runs `foxcloud update`, from beside this executable when it is

@@ -87,6 +87,8 @@ $form = New-Object Windows.Forms.Form
 $form.FormBorderStyle = 'None'; $form.ShowInTaskbar = $false; $form.TopMost = $true
 $form.StartPosition = 'Manual'; $form.BackColor = $cBg; $form.ForeColor = $cFg; $form.Font = $fBody
 $form.AutoSize = $true; $form.AutoSizeMode = 'GrowAndShrink'
+# Invisible until it has its size and corner: a Manual form is first shown at 0,0.
+$form.Opacity = 0
 $form.Padding = New-Object Windows.Forms.Padding 20, 18, 20, 20
 $form.Add_HandleCreated({
     $h = $this.Handle
@@ -158,7 +160,27 @@ function Get-JobText($j) {
         default { if ($j.message) { "$($j.state): $($j.message)" } else { $j.state } }
     }
 }
-$opText = @{ new = 'New'; changed = 'Changed'; deleted = 'Deleted'; moved = 'Moved'; renamed = 'Renamed' }
+# The feed: wording, glyph and colour per kind of change. Glyphs come from Segoe
+# Fluent Icons (Segoe MDL2 Assets on older Windows), which ships with Windows.
+$fIcon = New-Object Drawing.Font 'Segoe Fluent Icons', 11
+if ($fIcon.Name -ne 'Segoe Fluent Icons') { $fIcon = New-Object Drawing.Font 'Segoe MDL2 Assets', 11 }
+$cGood = if ($light) { & $c 16 124 16 } else { & $c 108 203 95 }
+$cBad = $cErr
+$cNeutral = $cWarn
+$cInfo = $accent
+$script:bgBrush = New-Object Drawing.SolidBrush $cBg
+$script:width = $width
+$script:fIcon = $fIcon; $script:fSmall = $fSmall; $script:cDim = $cDim
+$ops = @{
+    new      = @('New file', [string][char]0xE710, $cGood)
+    modified = @('Modified', [string][char]0xE70F, $cNeutral)
+    deleted  = @('Deleted', [string][char]0xE74D, $cBad)
+    moved    = @('Moved', [string][char]0xE8AB, $cInfo)
+    folder   = @('New folder', [string][char]0xE8F4, $cGood)
+    trashed  = @('Moved to trash', [string][char]0xE74D, $cBad)
+    archived = @('Set aside', [string][char]0xE7B8, $cNeutral)
+    uploaded = @('Uploaded', [string][char]0xE898, $cGood)
+}
 $busy = 'uploading', 'downloading', 'syncing', 'checking'
 
 # --- Rendering ---------------------------------------------------------------
@@ -202,7 +224,19 @@ function Update-Popup {
         New-Label "Update available: $($view.update) (run foxcloud update)" $fSmall $cWarn 0 10 | Out-Null
     }
     if (-not $view.running) {
-        New-Label 'Start it with: Start-ScheduledTask -TaskName "FoxCloud daemon"' $fSmall $cDim 0 10 | Out-Null
+        $b = New-Button 'Start service' 120 {
+            Start-Process schtasks.exe -ArgumentList '/run', '/tn', '"FoxCloud daemon"' -WindowStyle Hidden
+        }
+        $b.Margin = New-Object Windows.Forms.Padding 0, 0, 0, 10
+        $panel.Controls.Add($b)
+    } elseif (@($view.jobs).Count -gt 0) {
+        $b = New-Button 'Sync all now' 120 {
+            foreach ($n in @($script:view.jobs | ForEach-Object { $_.job })) {
+                [Cli]::Run($form, $Bin, "sync-now `"$n`"", [Action[string, int]]{ param($o, $x) }) | Out-Null
+            }
+        }
+        $b.Margin = New-Object Windows.Forms.Padding 0, 0, 0, 10
+        $panel.Controls.Add($b)
     }
 
     # A card per job
@@ -253,22 +287,44 @@ function Update-Popup {
         }
     }
 
-    # Recent changes
+    # Recent changes: the last few, in one owner-drawn list box (one control, so
+    # drawing stays cheap).
     if ($script:hist.Count -gt 0) {
         New-Label 'Recent changes' $fBold $cFg 8 6 | Out-Null
-        foreach ($e in ($script:hist | Select-Object -First 12)) {
-            $verb = $opText[$e.op]; if (-not $verb) { $verb = $e.op }
+        $lb = New-Object Windows.Forms.ListBox
+        $lb.DrawMode = 'OwnerDrawFixed'; $lb.ItemHeight = 42; $lb.SelectionMode = 'None'
+        $lb.BorderStyle = 'None'; $lb.BackColor = $cBg; $lb.IntegralHeight = $false
+        $lb.Margin = New-Object Windows.Forms.Padding 0
+        $lb.Add_DrawItem({
+            param($sender, $e)
+            if ($e.Index -lt 0) { return }
+            $it = $sender.Items[$e.Index]
+            $r = $e.Bounds
+            $e.Graphics.FillRectangle($script:bgBrush, $r)
+            $flags = [Windows.Forms.TextFormatFlags]::EndEllipsis -bor [Windows.Forms.TextFormatFlags]::NoPrefix
+            $g = New-Object Drawing.Rectangle $r.X, ($r.Y + 4), 24, 24
+            [Windows.Forms.TextRenderer]::DrawText($e.Graphics, $it.Glyph, $script:fIcon, $g, $it.Color, ($flags -bor [Windows.Forms.TextFormatFlags]::HorizontalCenter))
+            $tw = $script:width - 30
+            $t1 = New-Object Drawing.Rectangle ($r.X + 30), ($r.Y + 2), $tw, 18
+            $t2 = New-Object Drawing.Rectangle ($r.X + 30), ($r.Y + 21), $tw, 18
+            [Windows.Forms.TextRenderer]::DrawText($e.Graphics, $it.Title, $script:fSmall, $t1, $it.Color, $flags)
+            [Windows.Forms.TextRenderer]::DrawText($e.Graphics, $it.Sub, $script:fSmall, $t2, $script:cDim, $flags)
+        })
+        foreach ($e in ($script:hist | Select-Object -First 7)) {
+            $op = $ops[$e.op]
+            if (-not $op) { $op = @($e.op, [string][char]0xE70F, $cDim) }
+            $verb = $op[0]
+            if ($e.op -eq 'new' -and $e.d) { $verb = 'New folder' } elseif ($e.op -eq 'deleted' -and $e.d) { $verb = 'Folder deleted' }
             $path = $e.p; if ($e.to) { $path += " → $($e.to)" }
-            $arrow = switch ($e.way) { 'Up' { '↑ ' } 'Down' { '↓ ' } default { '' } }
-            $line = New-Object Windows.Forms.FlowLayoutPanel
-            $line.FlowDirection = 'TopDown'; $line.WrapContents = $false; $line.AutoSize = $true; $line.BackColor = $cBg
-            $line.Margin = New-Object Windows.Forms.Padding 0, 0, 0, 5
-            $panel.Controls.Add($line)
-            $l = New-Label "$arrow$verb  $path" $fSmall $cFg 0 0 $line
-            $l.AutoEllipsis = $true
-            $w = $e.way; if ($e.m) { $w = "from $($e.m)" }
-            New-Label "$(Format-Ago ([datetime]$e.t))  ·  $($e.job)$(if ($w) { "  ·  $w" })" $fSmall $cDim 0 0 $line | Out-Null
+            $w = switch ($e.way) { 'up' { 'sent' } 'down' { 'received' } default { '' } }
+            if ($e.m) { $w = "by $($e.m)" } elseif ($e.way -eq 'remote') { $w = 'by another computer' }
+            [void]$lb.Items.Add([pscustomobject]@{
+                Glyph = $op[1]; Color = $op[2]; Title = "$verb  $path"
+                Sub = "$(Format-Ago ([datetime]$e.t))  ·  $($e.job)$(if ($w) { "  ·  $w" })"
+            })
         }
+        $lb.Size = New-Object Drawing.Size $width, ($lb.Items.Count * 42)
+        $panel.Controls.Add($lb)
     }
     $panel.ResumeLayout()
     Move-ToCorner
@@ -294,7 +350,7 @@ function Watch-Status([string]$rev) {
     })
 }
 function Watch-History([string]$rev) {
-    $a = if ($rev) { "history-json -n 12 -wait $rev" } else { 'history-json -n 12' }
+    $a = if ($rev) { "history-json -n 7 -wait $rev" } else { 'history-json -n 7' }
     $script:procs.hist = [Cli]::Run($form, $Bin, $a, [Action[string, int]]{
         param($out, $code)
         if ($form.IsDisposed -or $script:closing) { return }
@@ -313,7 +369,7 @@ $form.Add_FormClosing({
 $form.Add_Deactivate({ $form.Close() })
 $form.Add_KeyDown({ if ($_.KeyCode -eq 'Escape') { $form.Close() } })
 $form.KeyPreview = $true
-$form.Add_Shown({ $form.Activate(); [Win]::SetForegroundWindow($form.Handle) | Out-Null })
+$form.Add_Shown({ Move-ToCorner; $form.Opacity = 1; $form.Activate(); [Win]::SetForegroundWindow($form.Handle) | Out-Null })
 
 Update-Popup
 Watch-Status ''

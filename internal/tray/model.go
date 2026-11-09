@@ -65,6 +65,9 @@ func (m *Model) Apply(ev daemon.Event) {
 	m.jobs[ev.Job] = ev
 }
 
+// SetOnline marks the daemon as reachable, before any job has reported.
+func (m *Model) SetOnline() { m.Offline = false }
+
 // SetOffline marks the daemon as gone. The job states are dropped: they were
 // the daemon's, and showing them would be showing stale news.
 func (m *Model) SetOffline() {

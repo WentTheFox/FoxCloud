@@ -162,7 +162,7 @@ func TestFollowReconnectsWhenDaemonAppears(t *testing.T) {
 	note := func(s string) { mu.Lock(); log = append(log, s); mu.Unlock() }
 	done := make(chan struct{})
 	go func() {
-		Follow(ctx, path, func(ev Event) { note("event:" + string(ev.State)) }, func() { note("gone") })
+		Follow(ctx, path, func() {}, func(ev Event) { note("event:" + string(ev.State)) }, func() { note("gone") })
 		close(done)
 	}()
 

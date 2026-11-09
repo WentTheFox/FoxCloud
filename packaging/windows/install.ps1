@@ -30,7 +30,10 @@ if ($Uninstall) {
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
     }
-    Get-Process foxcloud-tray -ErrorAction SilentlyContinue | Stop-Process -Force
+    $p = @(Get-Process foxcloudd, foxcloud, foxcloud-tray -ErrorAction SilentlyContinue |
+        Where-Object { -not $_.Path -or $_.Path -like (Join-Path $InstallDir '*') })
+    $p | Stop-Process -Force -ErrorAction SilentlyContinue
+    $p | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
     Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'FoxCloud tray' -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
     Write-Host 'Removed. State, config and the log were left in place.'
@@ -38,7 +41,12 @@ if ($Uninstall) {
 }
 
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
-if (-not ((Test-Path (Join-Path $BinDir 'foxcloud.exe')) -and (Test-Path (Join-Path $BinDir 'foxcloudd.exe')))) {
+# Build when the binaries are missing, and always when this is a source checkout
+# with Go available, so an old bin\ never hides new code. A release archive has
+# no source and installs the binaries it ships.
+$haveBins = (Test-Path (Join-Path $BinDir 'foxcloud.exe')) -and (Test-Path (Join-Path $BinDir 'foxcloudd.exe'))
+$canBuild = (Test-Path (Join-Path $root 'cmd/foxcloud')) -and (Get-Command go -ErrorAction SilentlyContinue)
+if (-not $haveBins -or $canBuild) {
     Write-Host "building into $BinDir"
     New-Item -ItemType Directory -Force $BinDir | Out-Null
     $env:CGO_ENABLED = '0'
@@ -55,10 +63,30 @@ if (-not ((Test-Path (Join-Path $BinDir 'foxcloud.exe')) -and (Test-Path (Join-P
 if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
     Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 }
+# The task may not own the daemon (started by hand, or still shutting down), and
+# the tray's popup keeps foxcloud.exe running, so stop every copy from the
+# install directory and wait for it to let go of its file.
+$running = @(Get-Process foxcloudd, foxcloud, foxcloud-tray -ErrorAction SilentlyContinue |
+    Where-Object { -not $_.Path -or $_.Path -like (Join-Path $InstallDir '*') })
+$running | Stop-Process -Force -ErrorAction SilentlyContinue
+$running | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
-Copy-Item (Join-Path $BinDir 'foxcloud.exe'), (Join-Path $BinDir 'foxcloudd.exe') $InstallDir -Force
-$trayExe = Join-Path $BinDir 'foxcloud-tray.exe'
-if (Test-Path $trayExe) { Copy-Item $trayExe $InstallDir -Force }
+Get-ChildItem $InstallDir -Filter '*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+# Copies over an installed file even if something still holds it open (the
+# process that was just stopped, or a virus scan of it): retry briefly, then move
+# the old file aside, which Windows allows for a file in use, and copy again.
+function Install-File([string]$Source, [string]$Dest) {
+    for ($i = 0; $i -lt 5; $i++) {
+        try { Copy-Item $Source $Dest -Force -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds 400 }
+    }
+    if (Test-Path $Dest) { Move-Item $Dest "$Dest.old" -Force }
+    Copy-Item $Source $Dest -Force
+}
+foreach ($f in 'foxcloud.exe', 'foxcloudd.exe', 'foxcloud-tray.exe') {
+    $src = Join-Path $BinDir $f
+    if (Test-Path $src) { Install-File $src (Join-Path $InstallDir $f) }
+}
 
 # The tray's click-to-open status popup and the status icons it shows.
 Copy-Item (Join-Path $PSScriptRoot 'foxcloud-popup.ps1') $InstallDir -Force
@@ -81,11 +109,16 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
 # The tray starts with the user's session through the Run key (no admin needed).
 $installedTray = Join-Path $InstallDir 'foxcloud-tray.exe'
 if (Test-Path $installedTray) {
-    Get-Process foxcloud-tray -ErrorAction SilentlyContinue | Stop-Process -Force
     Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'FoxCloud tray' -Value "`"$installedTray`""
 }
 
 Write-Host "installed to $InstallDir"
-Write-Host 'Start now:  Start-ScheduledTask -TaskName "FoxCloud daemon"'
+if (Test-Path $installedTray) {
+    Start-Process $installedTray
+    Write-Host 'Tray:       started now (click its icon for the status popup); it also starts at every logon.'
+    Write-Host '            If the icon is hidden, drag it out of the taskbar''s overflow (^) menu.'
+}
+Write-Host 'Daemon:     starts at logon after a delay. Start it now:  Start-ScheduledTask -TaskName "FoxCloud daemon"'
+Write-Host "Tray later: & `"$installedTray`""
 Write-Host "Log:        $logFile"
 Write-Host 'Add the install directory to PATH to use `foxcloud` from a terminal.'

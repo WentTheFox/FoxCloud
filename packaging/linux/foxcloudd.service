@@ -1,9 +1,9 @@
 [Unit]
 Description=FoxCloud sync daemon
 Documentation=https://github.com/WentTheFox/FoxCloud
-# The sync passes need the network and, for the first pass, a settled system.
-Wants=network-online.target
-After=network-online.target
+# The sync passes and the mount need the network and, for the first pass, a
+# settled system. A user unit cannot order itself after the system's
+# network-online.target, so the waits are in ExecStartPre below.
 
 [Service]
 Type=simple
@@ -11,6 +11,10 @@ Type=simple
 # the exit code: a "degraded" system has still finished booting. The extra
 # delay before the first pass is [daemon] startup_delay in the config.
 ExecStartPre=-/usr/bin/systemctl --system is-system-running --wait
+# Hold until NetworkManager reports a connection (blocks on its signals, up to
+# 60 s). Ignored when NetworkManager is not installed or never connects; the
+# mount and the passes then retry on their own.
+ExecStartPre=-/usr/bin/nm-online --quiet --timeout=60
 # Optional file with FOXCLOUD_CONFIG=/path/to/config.toml
 EnvironmentFile=-%E/foxcloud/env
 ExecStart=%h/.local/bin/foxcloudd

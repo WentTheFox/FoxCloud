@@ -30,8 +30,13 @@ type Runner func(ctx context.Context, job string, onResync func(), onDirection f
 // the remote.
 type Mounter func(ctx context.Context, job string, onReady func(), onChange func(rclone.MountChange)) error
 
-// MountRetry is how long a failed mount waits before it is tried again.
+// MountRetry is the longest a failed mount waits before it is tried again.
 var MountRetry = time.Minute
+
+// MountRetryFirst is the wait after the first failure. It doubles up to
+// MountRetry, so a mount that failed because the session or network was not
+// ready yet at login is back within seconds instead of a minute.
+var MountRetryFirst = 5 * time.Second
 
 // Daemon schedules the jobs and publishes their state.
 type Daemon struct {
@@ -155,6 +160,7 @@ func (d *Daemon) Run(ctx context.Context) {
 // (something a person has to fix) is not retried until resumed, which the
 // next attempt notices.
 func (d *Daemon) mountLoop(ctx context.Context, j config.Job) {
+	wait := MountRetryFirst
 	for {
 		d.emit(Event{Job: j.Name, State: StateIdle, Message: "mounting"})
 		err := d.Mount(ctx, j.Name, func() {
@@ -172,13 +178,17 @@ func (d *Daemon) mountLoop(ctx context.Context, j config.Job) {
 		default:
 			d.emit(Event{Job: j.Name, State: StateFailed, Message: err.Error()})
 		}
-		t := time.NewTimer(MountRetry)
+		if wait > MountRetry {
+			wait = MountRetry
+		}
+		t := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			t.Stop()
 			return
 		case <-t.C:
 		}
+		wait *= 2
 	}
 }
 

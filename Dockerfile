@@ -20,6 +20,8 @@ RUN go build -trimpath -ldflags "-s -w -X github.com/WentTheFox/FoxCloud/interna
 # The official rclone image supplies a pinned rclone on Alpine (it also has sh,
 # which key_command needs). Its entrypoint is rclone, so it is replaced below.
 FROM ${RCLONE_IMAGE}
+# The journal (and `ssh_host` lookups) shell out to ssh, which the rclone image does not ship.
+RUN apk add --no-cache openssh-client
 COPY --from=build /out/foxcloudd /out/foxcloud /usr/local/bin/
 COPY --chmod=755 packaging/docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ENV FOXCLOUD_CONFIG=/config/config.toml \

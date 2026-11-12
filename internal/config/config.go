@@ -22,7 +22,11 @@ const (
 
 // DefaultMaxDelete is used when a job leaves max_delete unset. It is low on
 // purpose: a sync that wants to delete more than this pauses for a human.
-const DefaultMaxDelete = 10
+const DefaultMaxDelete = 67
+
+// DefaultMaxDeletePercent is the bisync counterpart: rclone bisync reads
+// --max-delete as a percentage of the files on a side, not as a count.
+const DefaultMaxDeletePercent = 5
 
 type Config struct {
 	Remote  Remote  `toml:"remote"`
@@ -156,9 +160,13 @@ type Job struct {
 	Interval     string `toml:"interval"`
 	Watch        bool   `toml:"watch"`
 	RequireMount string `toml:"require_mount"`
-	MaxDelete    int    `toml:"max_delete"`
-	BackupDir    string `toml:"backup_dir"`
-	FilterFile   string `toml:"filter_file"`
+	// MaxDelete is the most files a push job may delete in one pass (a count).
+	MaxDelete int `toml:"max_delete"`
+	// MaxDeletePercent is the most a bisync job may delete on either side in
+	// one pass, as a percentage (1-100) of that side's files.
+	MaxDeletePercent int    `toml:"max_delete_percent"`
+	BackupDir        string `toml:"backup_dir"`
+	FilterFile       string `toml:"filter_file"`
 
 	MountPoint   string `toml:"mount_point"`
 	CacheMode    string `toml:"cache_mode"`
@@ -247,6 +255,9 @@ func (c *Config) normalise(baseDir string) {
 		j.MountPoint = ExpandHome(j.MountPoint)
 		j.RequireMount = ExpandPath(j.RequireMount)
 		j.FilterFile = ExpandPath(j.FilterFile)
+		if j.MaxDeletePercent == 0 {
+			j.MaxDeletePercent = DefaultMaxDeletePercent
+		}
 		if j.MaxDelete == 0 {
 			j.MaxDelete = DefaultMaxDelete
 		}
@@ -318,6 +329,9 @@ func (c *Config) Validate() error {
 		}
 		if j.MaxDelete < 0 {
 			return fmt.Errorf("job %q: max_delete must not be negative", j.Name)
+		}
+		if j.MaxDeletePercent < 0 || j.MaxDeletePercent > 100 {
+			return fmt.Errorf("job %q: max_delete_percent must be between 1 and 100", j.Name)
 		}
 	}
 	return nil

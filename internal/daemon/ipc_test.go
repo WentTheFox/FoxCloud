@@ -195,3 +195,19 @@ func TestFollowReconnectsWhenDaemonAppears(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestResumeClearsThePauseThenSyncs(t *testing.T) {
+	d := New(job(config.RolePush, ""), ok, time.Hour)
+	var resumed string
+	d.Resume = func(job string) error { resumed = job; return nil }
+	path := serve(t, d)
+	if _, err := Do(path, Request{Cmd: "resume", Job: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if resumed != "a" {
+		t.Errorf("resumed %q, want a", resumed)
+	}
+	if _, err := Do(path, Request{Cmd: "resume", Job: "nope"}); err == nil {
+		t.Error("expected an error for an unknown job")
+	}
+}

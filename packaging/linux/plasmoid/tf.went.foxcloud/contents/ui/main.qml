@@ -52,7 +52,7 @@ PlasmoidItem {
                 return
             }
             const isStatus = source.startsWith(root.queryCmd)
-            if (!isStatus) return   // actions (sync now, stop): nothing to read back
+            if (!isStatus) return   // actions (sync now, stop, resume): nothing to read back
             let v = null
             try { v = JSON.parse(data.stdout) } catch (e) {}
             if (v === null) {
@@ -347,6 +347,12 @@ PlasmoidItem {
                         color: Kirigami.Theme.negativeTextColor
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
+                    }
+                    PlasmaComponents.Button {
+                        visible: modelData.state === "paused"
+                        text: i18n("Resume")
+                        icon.name: "media-playback-start"
+                        onClicked: root.act("resume", modelData.job)
                     }
                     PlasmaComponents.Label {
                         visible: (modelData.conflicts || 0) > 0

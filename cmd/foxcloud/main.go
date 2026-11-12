@@ -34,7 +34,7 @@ commands:
   check-names <job>               list names too long to upload once encrypted
   verify [-n 25] [-max-size 200M] <job>
                                   download a random sample, decrypt it and compare with the originals
-  resume <job>                    clear a pause after fixing the cause
+  resume <job>                    clear a pause after fixing the cause (and sync, if the daemon is running)
   sync-now <job>                  ask the running daemon to sync a job now
   stop <job>                      ask the daemon to cancel a job's running pass
   update [-check|-rollback]       install the newest release (-check only looks, -rollback undoes the last one)
@@ -150,6 +150,15 @@ func run() error {
 	case "resume":
 		if len(args) != 1 {
 			return errors.New("resume needs exactly one job name")
+		}
+		// A running daemon clears the pause, shows it and syncs straight away;
+		// without one the saved state is cleared for the next start.
+		sock, err := daemon.SocketPath()
+		if err != nil {
+			return err
+		}
+		if _, err := daemon.Do(sock, daemon.Request{Cmd: "resume", Job: args[0]}); !errors.Is(err, daemon.ErrNotRunning) {
+			return err
 		}
 		return e.Resume(args[0])
 	default:

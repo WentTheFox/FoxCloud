@@ -67,6 +67,8 @@ func handle(ctx context.Context, d *Daemon, conn net.Conn) {
 		reply(enc, d.SyncNow(req.Job))
 	case "stop":
 		reply(enc, d.Stop(req.Job))
+	case "resume":
+		reply(enc, d.ResumeJob(req.Job))
 	case "subscribe":
 		snap, events, cancel := d.Subscribe()
 		defer cancel()

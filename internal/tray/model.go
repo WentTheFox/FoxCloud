@@ -199,6 +199,9 @@ func describe(ev daemon.Event) string {
 		if ev.Message != "" {
 			s += ": " + ev.Message
 		}
+		if ev.State == daemon.StatePaused {
+			s += " (click to resume)"
+		}
 	}
 	return s
 }

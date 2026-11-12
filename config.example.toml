@@ -58,7 +58,8 @@ local_path = "~/Data"
 interval = "6h"             # the safety-net full pass; leave out to run one only at start-up and on `foxcloud sync-now`
 watch = true                # push and bisync: upload changed files ~3 s after they settle (no polling)
 require_mount = ""          # sync only if this is a mount point
-max_delete = 5
+max_delete = 67             # push: the most files one pass may delete (a count); more pauses the job
+# max_delete_percent = 5    # bisync: the most one pass may delete on a side, as a percent of its files
 backup_dir = "~/Data.foxcloud-backup"
 filter_file = "filters.txt"
 

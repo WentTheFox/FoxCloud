@@ -60,6 +60,9 @@ type Daemon struct {
 	// (a pass running, or changes noticed and not yet uploaded). The shutdown
 	// guard listens to it.
 	OnBusy func(busy bool)
+	// Resume clears a job's pause (the same as `foxcloud resume`). Without it
+	// the "resume" request is refused.
+	Resume func(job string) error
 	// Record adds entries to the change history; without it none is kept.
 	Record func(entries ...history.Entry)
 	// Conflicts counts a job's files that have conflict copies. Without it no
@@ -604,6 +607,21 @@ func (d *Daemon) SyncNow(job string) error {
 	default: // one is already queued
 	}
 	return nil
+}
+
+// ResumeJob clears the job's pause and starts a pass, so a paused job picks up
+// again without a trip to the terminal.
+func (d *Daemon) ResumeJob(job string) error {
+	if !d.knows(job) {
+		return fmt.Errorf("no syncable job named %q", job)
+	}
+	if d.Resume == nil {
+		return errors.New("resuming is not available here")
+	}
+	if err := d.Resume(job); err != nil {
+		return err
+	}
+	return d.SyncNow(job)
 }
 
 // Stop cancels the job's running pass. It does nothing if none is running.

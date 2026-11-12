@@ -51,7 +51,7 @@ type Event struct {
 
 // Request is one line of JSON from a client.
 type Request struct {
-	Cmd string `json:"cmd"` // status, sync-now, stop, subscribe
+	Cmd string `json:"cmd"` // status, sync-now, stop, resume, subscribe
 	Job string `json:"job,omitempty"`
 }
 

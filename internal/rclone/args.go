@@ -51,7 +51,9 @@ func Args(j config.Job, o Options) ([]string, error) {
 		common = append(common, "--force")
 	}
 	suffix := "." + o.Now.Format("20060102-150405")
+	// rclone sync takes a count, rclone bisync a percentage.
 	maxDelete := strconv.Itoa(j.MaxDelete)
+	maxDeletePercent := strconv.Itoa(j.MaxDeletePercent)
 
 	var args []string
 	switch j.Role {
@@ -65,7 +67,7 @@ func Args(j config.Job, o Options) ([]string, error) {
 	case config.RoleBisync:
 		args = []string{"bisync", remote, j.LocalPath,
 			"--resilient", "--recover", "--max-lock", "2m",
-			"--conflict-resolve", "newer", "--max-delete", maxDelete,
+			"--conflict-resolve", "newer", "--max-delete", maxDeletePercent,
 			"--backup-dir2", j.BackupDir}
 		if o.Resync {
 			args = append(args, "--resync", "--resync-mode", "newer")

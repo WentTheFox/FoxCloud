@@ -27,6 +27,9 @@ func TestLoadDefaults(t *testing.T) {
 	if j.MaxDelete != DefaultMaxDelete {
 		t.Errorf("max_delete = %d, want %d", j.MaxDelete, DefaultMaxDelete)
 	}
+	if j.MaxDeletePercent != DefaultMaxDeletePercent {
+		t.Errorf("max_delete_percent = %d, want %d", j.MaxDeletePercent, DefaultMaxDeletePercent)
+	}
 	if j.BackupDir != "/data.foxcloud-backup" {
 		t.Errorf("backup_dir = %q", j.BackupDir)
 	}

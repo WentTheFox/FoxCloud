@@ -115,6 +115,7 @@ func run() error {
 		}
 		return 0
 	}
+	d.Resume = e.Resume
 	d.Apply = func(ctx context.Context, job string, ops delta.Ops) error {
 		return e.Apply(ctx, job, ops)
 	}

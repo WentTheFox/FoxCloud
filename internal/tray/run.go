@@ -31,13 +31,14 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 	defer cancel()
 
 	var (
-		mu       sync.Mutex
-		model    = NewModel()
-		slots    []*systray.MenuItem
-		slotJob  [maxJobSlots]string
-		offline  *systray.MenuItem
-		syncAll  *systray.MenuItem
-		updItem  *systray.MenuItem
+		mu         sync.Mutex
+		model      = NewModel()
+		slots      []*systray.MenuItem
+		slotJob    [maxJobSlots]string
+		slotPaused [maxJobSlots]bool
+		offline    *systray.MenuItem
+		syncAll    *systray.MenuItem
+		updItem    *systray.MenuItem
 	)
 
 	render := func() {
@@ -62,10 +63,12 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 		for i, it := range slots {
 			if i < len(jobs) {
 				slotJob[i] = jobs[i].Job
+				slotPaused[i] = jobs[i].State == daemon.StatePaused
 				it.SetTitle(JobLine(jobs[i]))
 				it.Show()
 			} else {
 				slotJob[i] = ""
+				slotPaused[i] = false
 				it.Hide()
 			}
 		}
@@ -113,7 +116,7 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 			}
 		}()
 		for i := 0; i < maxJobSlots; i++ {
-			it := systray.AddMenuItem("", "Click to sync now")
+			it := systray.AddMenuItem("", "Click to sync now; a paused job is resumed first, so check the cause before clicking")
 			it.Hide()
 			slots = append(slots, it)
 			go func() {
@@ -121,15 +124,21 @@ func Run(ctx context.Context, sock string, theme Theme, followTheme bool, logf f
 					select {
 					case <-it.ClickedCh:
 						mu.Lock()
-						job := slotJob[i]
+						job, paused := slotJob[i], slotPaused[i]
 						mu.Unlock()
 						if job == "" {
 							continue
 						}
+						// A paused job needs a person to say the cause is dealt with:
+						// clicking it does what `foxcloud resume` does, then syncs.
+						cmd := "sync-now"
+						if paused {
+							cmd = "resume"
+						}
 						go func() {
 							sock, _ := daemon.SocketPath()
-							if _, err := daemon.Do(sock, daemon.Request{Cmd: "sync-now", Job: job}); err != nil {
-								logf("sync-now %s: %v", job, err)
+							if _, err := daemon.Do(sock, daemon.Request{Cmd: cmd, Job: job}); err != nil {
+								logf("%s %s: %v", cmd, job, err)
 							}
 						}()
 					case <-ctx.Done():

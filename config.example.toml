@@ -75,11 +75,14 @@ filter_file = "filters.txt"
 # The daemon keeps the mount up and retries a minute after it drops.
 
 # Backup example (e.g. a Raspberry Pi, see packaging/docker/compose.mirror.yml):
-# copies the server's ENCRYPTED tree as it is, without decrypting, so this
-# machine needs no crypt key. Point [remote] path at the folder to copy.
+# copies one folder of the server, ENCRYPTED and as it is, without decrypting,
+# so this machine needs no crypt key. Add one job per server folder; each needs
+# its own local_path. remote_path is the folder's name on the server (relative to
+# the SSH login folder), not a path inside the crypt root.
 # [[job]]
 # name = "mirror"
 # role = "mirror"
+# remote_path = "foxcloud-b"
 # local_path = "/backup/data"
 # backup_dir = "/backup/changed"   # replaced or removed files are kept here
 # interval = "6h"

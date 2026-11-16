@@ -300,6 +300,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("no [[job]] defined")
 	}
 	seen := map[string]bool{}
+	mirrored := map[string]bool{}
 	for _, j := range c.Jobs {
 		if j.Name == "" {
 			return fmt.Errorf("a [[job]] has no name")
@@ -326,11 +327,20 @@ func (c *Config) Validate() error {
 			if j.LocalPath == "" {
 				return fmt.Errorf("job %q: local_path is required for role %q", j.Name, j.Role)
 			}
-			// The server holds encrypted names, so neither a plain subfolder nor a
-			// filter written against plain names can mean anything here.
-			if j.RemotePath != "" || j.FilterFile != "" {
-				return fmt.Errorf("job %q: a mirror copies the whole encrypted tree; remote_path and filter_file are not allowed", j.Name)
+			// remote_path is the folder on the server, as it is named there (not a
+			// path inside the crypt root, whose names are encrypted), so one config
+			// can mirror several folders to several local ones. A filter written
+			// against plain names cannot match ciphertext.
+			if strings.Trim(j.RemotePath, "/") == "" {
+				return fmt.Errorf("job %q: remote_path is required for role %q (the server folder to copy, relative to the SSH login folder)", j.Name, j.Role)
 			}
+			if j.FilterFile != "" {
+				return fmt.Errorf("job %q: filter_file is not allowed for role %q: the server only holds encrypted names", j.Name, j.Role)
+			}
+			if mirrored[j.LocalPath] {
+				return fmt.Errorf("job %q: another mirror job already copies into %s", j.Name, j.LocalPath)
+			}
+			mirrored[j.LocalPath] = true
 		default:
 			return fmt.Errorf("job %q: unknown role %q (want push, pull, bisync, mirror or mount)", j.Name, j.Role)
 		}

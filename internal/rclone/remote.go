@@ -13,8 +13,6 @@ import (
 const (
 	sftpName  = "FOXSFTP"
 	cryptName = "FOXCRYPT"
-	// rawName is the sftp remote rooted at remote.path, ciphertext and all.
-	rawName = "FOXRAW"
 )
 
 // CryptRemote is the remote string jobs sync against, optionally with a subpath.
@@ -22,13 +20,16 @@ func CryptRemote(subpath string) string {
 	return strings.ToLower(cryptName) + ":" + strings.Trim(subpath, "/")
 }
 
-// RawRemote is the encrypted tree exactly as the server holds it. A mirror job
-// copies from it, so no key is involved.
-func RawRemote() string { return strings.ToLower(rawName) + ":" }
+// RawRemote is a folder on the server exactly as it is held, ciphertext and
+// all, named relative to the SSH login folder. A mirror job copies from it, so
+// no key is involved.
+func RawRemote(folder string) string {
+	return strings.ToLower(sftpName) + ":" + strings.Trim(folder, "/")
+}
 
 // Env returns the environment variables that define the sftp and crypt
 // remotes. password and salt must already be obscured (see Obscure). An empty
-// password leaves the crypt remote out: a mirror job needs only the raw one.
+// password leaves the crypt remote out: a mirror job needs only the sftp one.
 func Env(c *config.Config, password, salt string) []string {
 	env := func(remote, key, value string) string {
 		return "RCLONE_CONFIG_" + remote + "_" + key + "=" + value
@@ -38,8 +39,6 @@ func Env(c *config.Config, password, salt string) []string {
 		env(sftpName, "HOST", c.Remote.Host),
 		env(sftpName, "PORT", strconv.Itoa(c.Remote.Port)),
 		env(sftpName, "USER", c.Remote.User),
-		env(rawName, "TYPE", "alias"),
-		env(rawName, "REMOTE", strings.ToLower(sftpName)+":"+strings.Trim(c.Remote.Path, "/")),
 	}
 	if c.Remote.KeyFile != "" {
 		e = append(e, env(sftpName, "KEY_FILE", c.Remote.KeyFile))

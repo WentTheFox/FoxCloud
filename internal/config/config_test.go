@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -169,13 +170,22 @@ func TestDefaultPathFollowsTheEnvFile(t *testing.T) {
 }
 
 func TestMirrorJobRules(t *testing.T) {
-	job := "[[job]]\nname=\"m\"\nrole=\"mirror\"\nlocal_path=\"/bak\"\n"
+	job := "[[job]]\nname=\"m\"\nrole=\"mirror\"\nlocal_path=\"/bak\"\nremote_path=\"foxcloud-b\"\n"
 	if _, err := Load(write(t, remote+job)); err != nil {
-		t.Fatalf("a plain mirror job should load: %v", err)
+		t.Fatalf("a mirror job with a source folder should load: %v", err)
 	}
-	for _, extra := range []string{"remote_path=\"docs\"\n", "filter_file=\"f.txt\"\n"} {
-		if _, err := Load(write(t, remote+job+extra)); err == nil {
-			t.Errorf("mirror job with %q should be rejected", extra)
+	other := "[[job]]\nname=\"n\"\nrole=\"mirror\"\nlocal_path=\"%s\"\nremote_path=\"other\"\n"
+	if _, err := Load(write(t, remote+job+fmt.Sprintf(other, "/bak2"))); err != nil {
+		t.Errorf("two mirror jobs with different folders should load: %v", err)
+	}
+	bad := map[string]string{
+		"no source folder":  "[[job]]\nname=\"m\"\nrole=\"mirror\"\nlocal_path=\"/bak\"\n",
+		"filter file":       job + "filter_file=\"f.txt\"\n",
+		"same local folder": job + fmt.Sprintf(other, "/bak"),
+	}
+	for name, body := range bad {
+		if _, err := Load(write(t, remote+body)); err == nil {
+			t.Errorf("%s should be rejected", name)
 		}
 	}
 }

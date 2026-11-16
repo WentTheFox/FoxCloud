@@ -1,0 +1,22 @@
+# A second, encrypted copy of a FoxCloud folder, kept on a small machine such as a
+# Raspberry Pi, in case the storage server is lost. Works with podman-compose or
+# `docker compose`; no FUSE, no capabilities, no crypt key.
+# Run from the repo root:
+#   podman-compose -f packaging/docker/compose.mirror.yml --env-file packaging/docker/.env up -d
+# Only FOXCLOUD_SSH_KEY and FOXCLOUD_KNOWN_HOSTS are read (see .env.example).
+# Use a key that may only read the server (a read-only SFTP user, if the host
+# offers one), so a hacked Pi cannot damage the original.
+services:
+  foxcloud-mirror:
+    image: ghcr.io/wentthefox/foxcloud:latest   # multi-arch, includes linux/arm64
+    restart: unless-stopped
+    environment:
+      FOXCLOUD_SSH_KEY: ${FOXCLOUD_SSH_KEY:?set in .env}
+      FOXCLOUD_KNOWN_HOSTS: ${FOXCLOUD_KNOWN_HOSTS:?set in .env}
+    volumes:
+      - ./config.mirror.toml:/config/config.toml:ro,Z
+      - foxcloud-mirror-state:/state
+      - /srv/foxcloud-backup:/backup:Z    # the copy; put this on the disk you want it on
+
+volumes:
+  foxcloud-mirror-state:

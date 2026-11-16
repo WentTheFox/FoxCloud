@@ -60,7 +60,7 @@ func (e *Engine) Apply(ctx context.Context, name string, ops delta.Ops) error {
 			return fmt.Errorf("required mount unavailable: %w", err)
 		}
 	}
-	env, err := e.remoteEnv(ctx)
+	env, err := e.remoteEnv(ctx, true)
 	if err != nil {
 		return err
 	}

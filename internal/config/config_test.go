@@ -167,3 +167,15 @@ func TestDefaultPathFollowsTheEnvFile(t *testing.T) {
 		t.Errorf("fallback: %q", got)
 	}
 }
+
+func TestMirrorJobRules(t *testing.T) {
+	job := "[[job]]\nname=\"m\"\nrole=\"mirror\"\nlocal_path=\"/bak\"\n"
+	if _, err := Load(write(t, remote+job)); err != nil {
+		t.Fatalf("a plain mirror job should load: %v", err)
+	}
+	for _, extra := range []string{"remote_path=\"docs\"\n", "filter_file=\"f.txt\"\n"} {
+		if _, err := Load(write(t, remote+job+extra)); err == nil {
+			t.Errorf("mirror job with %q should be rejected", extra)
+		}
+	}
+}

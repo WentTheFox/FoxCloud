@@ -18,6 +18,9 @@ const (
 	RolePull   = "pull"
 	RoleBisync = "bisync"
 	RoleMount  = "mount"
+	// RoleMirror copies the encrypted tree as it is on the server, without
+	// decrypting it, to a local folder: a second copy that needs no crypt key.
+	RoleMirror = "mirror"
 )
 
 // DefaultMaxDelete is used when a job leaves max_delete unset. It is low on
@@ -319,8 +322,17 @@ func (c *Config) Validate() error {
 			default:
 				return fmt.Errorf("job %q: cache_mode %q is not one of off, minimal, writes, full", j.Name, j.CacheMode)
 			}
+		case RoleMirror:
+			if j.LocalPath == "" {
+				return fmt.Errorf("job %q: local_path is required for role %q", j.Name, j.Role)
+			}
+			// The server holds encrypted names, so neither a plain subfolder nor a
+			// filter written against plain names can mean anything here.
+			if j.RemotePath != "" || j.FilterFile != "" {
+				return fmt.Errorf("job %q: a mirror copies the whole encrypted tree; remote_path and filter_file are not allowed", j.Name)
+			}
 		default:
-			return fmt.Errorf("job %q: unknown role %q (want push, pull, bisync or mount)", j.Name, j.Role)
+			return fmt.Errorf("job %q: unknown role %q (want push, pull, bisync, mirror or mount)", j.Name, j.Role)
 		}
 		if j.Interval != "" {
 			if _, err := time.ParseDuration(j.Interval); err != nil {

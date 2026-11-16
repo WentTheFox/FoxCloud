@@ -12,7 +12,7 @@ import (
 // as the include function for Scan. Displaced files are archived under the
 // job's backup folder.
 func ForJob(j config.Job) (*Resolver, func(string) bool, error) {
-	if j.Role == config.RoleMount || j.LocalPath == "" {
+	if j.Role == config.RoleMount || j.Role == config.RoleMirror || j.LocalPath == "" {
 		return nil, nil, fmt.Errorf("job %q has no local folder to check", j.Name)
 	}
 	var include func(string) bool

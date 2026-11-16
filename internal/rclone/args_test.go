@@ -2,6 +2,7 @@ package rclone
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,5 +83,34 @@ func TestMountArgs(t *testing.T) {
 	}
 	if _, err := MountArgs(config.Job{Role: config.RolePush}); err == nil {
 		t.Error("a push job must not produce mount args")
+	}
+}
+
+func TestMirrorArgsCopyTheRawTree(t *testing.T) {
+	j := config.Job{Role: config.RoleMirror, LocalPath: "/bak", BackupDir: "/bak.old", MaxDelete: 5}
+	got, err := Args(j, Options{Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"sync", "foxraw:", "/bak", "--max-delete", "5", "--backup-dir", "/bak.old",
+		"--suffix", ".20261030-120000", "--create-empty-src-dirs", "--stats", "1m", "-v"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Args() =\n%v\nwant\n%v", got, want)
+	}
+}
+
+func TestEnvWithoutPasswordHasNoCryptRemote(t *testing.T) {
+	c := &config.Config{Remote: config.Remote{Host: "h", Port: 22, User: "u", Path: "/b"}}
+	for _, kv := range Env(c, "", "") {
+		if strings.Contains(kv, "FOXCRYPT") {
+			t.Errorf("crypt remote defined without a key: %s", kv)
+		}
+	}
+	var raw bool
+	for _, kv := range Env(c, "pw", "") {
+		raw = raw || kv == "RCLONE_CONFIG_FOXRAW_REMOTE=foxsftp:b"
+	}
+	if !raw {
+		t.Error("raw remote should point at the sftp path")
 	}
 }

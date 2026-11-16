@@ -30,8 +30,8 @@ func (e *Engine) Verify(ctx context.Context, name string, n int, maxSize string)
 	if !ok {
 		return res, fmt.Errorf("no job named %q", name)
 	}
-	if job.Role == config.RoleMount {
-		return res, fmt.Errorf("job %q is a mount job and has no local folder to compare", name)
+	if job.Role == config.RoleMount || job.Role == config.RoleMirror {
+		return res, fmt.Errorf("job %q is a %s job and has no plain local folder to compare", name, job.Role)
 	}
 	if n < 1 {
 		return res, errors.New("sample size must be at least 1")
@@ -71,7 +71,7 @@ func (e *Engine) Verify(ctx context.Context, name string, n int, maxSize string)
 		return res, errors.Join(werr, cerr)
 	}
 
-	env, err := e.remoteEnv(ctx)
+	env, err := e.remoteEnv(ctx, true)
 	if err != nil {
 		return res, err
 	}

@@ -41,6 +41,7 @@ A machine runs one or more jobs, each with a role:
 |----------|------------------------------------------|----------------------------------------------|
 | `push`   | `sync local -> remote`                   | Authoritative desktop                        |
 | `pull`   | `copy remote -> local`                   | Never deletes locally, backs up overwrites   |
+| `mirror` | `sync raw remote -> local` (ciphertext)  | `max_delete`, replaced/removed files go to `backup_dir`; needs no crypt key |
 | `bisync` | `bisync`                                 | Multi-writer machines                        |
 | `mount`  | `mount --vfs-cache-mode full`            | Laptop on demand (WinFsp / FUSE required)    |
 

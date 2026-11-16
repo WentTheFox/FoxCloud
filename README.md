@@ -8,7 +8,9 @@ Status: planning. See [PLAN.md](PLAN.md) for the design and milestones and
 [config.example.toml](config.example.toml) for the draft config.
 
 Roles per machine: `push` (authoritative desktop), `pull`, `bisync`, and
-`mount` (files on demand for laptops).
+`mount` (files on demand for laptops), and `mirror` (a second copy of the
+encrypted tree on another machine, with no key; see
+[packaging/docker/compose.mirror.yml](packaging/docker/compose.mirror.yml)).
 
 The Plasma widget uses icons from [Lucide](https://lucide.dev) (ISC licence, see
 `third_party/lucide/LICENSE`); clone with `--recurse-submodules` or run

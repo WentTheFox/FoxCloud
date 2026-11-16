@@ -81,7 +81,10 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 		return err
 	}
 
-	env, err := e.remoteEnv(ctx)
+	// A mirror copies ciphertext, so it neither needs the crypt key nor has
+	// plain names to check.
+	mirror := job.Role == config.RoleMirror
+	env, err := e.remoteEnv(ctx, !mirror)
 	if err != nil {
 		return err
 	}
@@ -100,16 +103,19 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 		return err
 	}
 
-	e.warnLongNames(ctx, job)
+	if !mirror {
+		e.warnLongNames(ctx, job)
+	}
 
 	st.LastAttempt = e.now()
 	var onRec func(rclone.LogRecord)
 	var tracker *rclone.FileTracker
 	roleWay := rclone.Upload // push; a pull downloads
-	if job.Role == config.RolePull {
+	if job.Role == config.RolePull || mirror {
 		roleWay = rclone.Download
 	}
-	if opts.OnFile != nil && !opts.DryRun {
+	// A mirror's file names are ciphertext, which means nothing in the history.
+	if opts.OnFile != nil && !opts.DryRun && !mirror {
 		tracker = rclone.NewFileTracker(roleWay) // bisync is corrected by its own announcements
 	}
 	if !opts.DryRun && (tracker != nil || opts.OnDirection != nil) {
@@ -167,7 +173,7 @@ func (e *Engine) Run(ctx context.Context, name string, opts RunOptions) error {
 
 // Usage reports how full the remote storage is.
 func (e *Engine) Usage(ctx context.Context) (rclone.Usage, error) {
-	env, err := e.remoteEnv(ctx)
+	env, err := e.remoteEnv(ctx, true)
 	if err != nil {
 		return rclone.Usage{}, err
 	}
@@ -187,9 +193,20 @@ func (e *Engine) Resume(name string) error {
 	return e.Store.Save(name, st)
 }
 
-func (e *Engine) remoteEnv(ctx context.Context) ([]string, error) {
+// remoteEnv defines the rclone remotes. withCrypt is false for a mirror job,
+// which reads the raw remote and so never touches the master key.
+func (e *Engine) remoteEnv(ctx context.Context, withCrypt bool) ([]string, error) {
 	if e.envFn != nil {
 		return e.envFn(ctx)
+	}
+	if !withCrypt {
+		remote, err := e.resolveRemote(ctx)
+		if err != nil {
+			return nil, err
+		}
+		cfg := *e.Cfg
+		cfg.Remote = remote
+		return rclone.Env(&cfg, "", ""), nil
 	}
 	key, err := secret.Resolve(ctx, e.Cfg.Crypt.KeyCommand)
 	if err != nil {

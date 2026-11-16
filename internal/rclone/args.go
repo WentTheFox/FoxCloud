@@ -64,6 +64,12 @@ func Args(j config.Job, o Options) ([]string, error) {
 		// copy never deletes locally; anything it would overwrite is moved aside first.
 		args = []string{"copy", remote, j.LocalPath, "--update",
 			"--backup-dir", j.BackupDir, "--suffix", suffix}
+	case config.RoleMirror:
+		// An exact copy of the ciphertext. Overwritten and deleted files are
+		// moved aside, and max-delete stops a wiped server from emptying the
+		// copy, which is the reason this job exists.
+		args = []string{"sync", RawRemote(), j.LocalPath, "--max-delete", maxDelete,
+			"--backup-dir", j.BackupDir, "--suffix", suffix}
 	case config.RoleBisync:
 		args = []string{"bisync", remote, j.LocalPath,
 			"--resilient", "--recover", "--max-lock", "2m",

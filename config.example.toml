@@ -48,7 +48,7 @@ mode = "notify"
 # machine = "desktop"         # this machine's name in the log; defaults to the host name
 # path = "foxcloud-journal/journal.log"   # relative to the SSH login folder
 
-# One table per job. Roles: push, pull, bisync, mount.
+# One table per job. Roles: push, pull, bisync, mount, mirror.
 # Windows drive paths ("D:\Data", "D:/Data") work on Linux and macOS too: they
 # map to /mnt/<letter>/..., so one config can be shared between machines.
 [[job]]
@@ -73,3 +73,14 @@ filter_file = "filters.txt"
 # cache_mode = "full"         # off, minimal, writes or full
 # cache_max_size = "100G"     # cap the on-disk cache; least recently used files go first
 # The daemon keeps the mount up and retries a minute after it drops.
+
+# Backup example (e.g. a Raspberry Pi, see packaging/docker/compose.mirror.yml):
+# copies the server's ENCRYPTED tree as it is, without decrypting, so this
+# machine needs no crypt key. Point [remote] path at the folder to copy.
+# [[job]]
+# name = "mirror"
+# role = "mirror"
+# local_path = "/backup/data"
+# backup_dir = "/backup/changed"   # replaced or removed files are kept here
+# interval = "6h"
+# max_delete = 20                  # a pass removing more than this pauses for you

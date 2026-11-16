@@ -1,0 +1,32 @@
+# FoxCloud config for a backup mirror (a Raspberry Pi, say). Mounted at
+# /config/config.toml by compose.mirror.yml.
+#
+# A mirror copies the ENCRYPTED tree from the storage server as it is. It never
+# decrypts anything, so there is no crypt key here and none on this machine: if
+# the Pi is stolen, the copy is as unreadable as the server's.
+# To restore from it you still need the master key, so keep that backed up
+# somewhere else (the desktop keyring is not a backup).
+
+[remote]
+host = "uXXXXXX.your-storagebox.de"
+port = 23
+user = "uXXXXXX"
+key_file = "/tmp/foxcloud/ssh_key"          # written from $FOXCLOUD_SSH_KEY
+known_hosts_file = "/tmp/foxcloud/known_hosts"   # written from $FOXCLOUD_KNOWN_HOSTS
+# The folder the instance you want to copy syncs into (not the one the Pi
+# itself would write to; the Pi writes nothing).
+path = "/foxcloud-b"
+
+[update]
+mode = "off"          # the image is the update unit
+
+[daemon]
+startup_delay = "30s"
+
+[[job]]
+name = "mirror"
+role = "mirror"
+local_path = "/backup/data"          # the encrypted tree, file for file
+backup_dir = "/backup/changed"       # files the server replaced or removed are kept here
+interval = "6h"
+max_delete = 20      # a pass that would remove more than this stops and waits for you

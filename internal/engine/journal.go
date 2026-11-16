@@ -136,7 +136,7 @@ func (e *Engine) Fetch(ctx context.Context, name string, paths []string, overwri
 	if st.Paused != nil {
 		return fmt.Errorf("%w: %s", ErrPaused, st.Paused.Message)
 	}
-	env, err := e.remoteEnv(ctx)
+	env, err := e.remoteEnv(ctx, true)
 	if err != nil {
 		return err
 	}

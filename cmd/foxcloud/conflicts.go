@@ -39,7 +39,7 @@ func conflictJob(cfg *config.Config, name string) (*conflict.Resolver, func(stri
 func syncedJobs(cfg *config.Config, only string) []string {
 	var names []string
 	for _, j := range cfg.Jobs {
-		if j.Role != config.RoleMount && j.LocalPath != "" && (only == "" || only == j.Name) {
+		if j.Role != config.RoleMount && j.Role != config.RoleMirror && j.LocalPath != "" && (only == "" || only == j.Name) {
 			names = append(names, j.Name)
 		}
 	}

@@ -427,7 +427,7 @@ func activeState(role string) State {
 	switch role {
 	case config.RolePush:
 		return StateUploading
-	case config.RolePull:
+	case config.RolePull, config.RoleMirror:
 		return StateDownloading
 	default:
 		return StateSyncing
@@ -441,7 +441,7 @@ func (d *Daemon) pass(parent context.Context, j config.Job) {
 	defer d.jobMu[j.Name].Unlock()
 	// A pass that can upload keeps the machine from shutting down; a pull
 	// only downloads, and losing it costs nothing.
-	if j.Role != config.RolePull {
+	if j.Role != config.RolePull && j.Role != config.RoleMirror {
 		d.change(func() { d.running++ })
 		defer d.change(func() { d.running-- })
 	}

@@ -59,7 +59,7 @@ func (e *Engine) Mount(ctx context.Context, name string, onReady func(), onChang
 			return err
 		}
 	}
-	env, err := e.remoteEnv(ctx)
+	env, err := e.remoteEnv(ctx, true)
 	if err != nil {
 		return err
 	}

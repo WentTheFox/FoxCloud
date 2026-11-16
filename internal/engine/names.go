@@ -33,8 +33,8 @@ func (e *Engine) CheckNames(ctx context.Context, name string) ([]string, error) 
 	if !ok {
 		return nil, fmt.Errorf("no job named %q", name)
 	}
-	if job.Role == config.RoleMount {
-		return nil, fmt.Errorf("job %q is a mount job and has no local folder to check", name)
+	if job.Role == config.RoleMount || job.Role == config.RoleMirror {
+		return nil, fmt.Errorf("job %q is a %s job and has no plain names to check", name, job.Role)
 	}
 	return e.longNames(ctx, job)
 }
